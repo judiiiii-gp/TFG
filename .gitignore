@@ -1,0 +1,15 @@
+# Excluir archivos Excel
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb
+~$*.xlsx  # Archivos temporales de Excel
+
+# Excluir archivos de texto
+*.txt
+
+# Opcional: Excluir archivos temporales y del sistema
+.DS_Store          # macOS
+Thumbs.db          # Windows
+.idea/             # JetBrains IDE
+.vscode/           # Visual Studio Code
