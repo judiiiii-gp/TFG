@@ -223,7 +223,7 @@ T6 = [1, 0.72]
 T6OG = [1, 1]
 
 
-Data_List = os. listdir(".//Naca0012_database_mesh_1//FOM_Skin_Data")
+Data_List = os. listdir("C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\Naca0012_database_mesh_1\\FOM_Skin_Data")
 
 CP = np.zeros(1)
 Alpha = np.zeros((len(Data_List), 1))
@@ -237,7 +237,7 @@ while i < len(Data_List):
     param = Data_List[i].removesuffix('.dat')
     paramMatrix = param.split(',')
 
-    dir = './/Naca0012_database_mesh_1//FOM_Skin_Data//' + Data_List[i]
+    dir = 'C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\Naca0012_database_mesh_1\\FOM_Skin_Data\\' + Data_List[i]
 
     file1 = open(dir, 'r')
     lines = file1.readlines()

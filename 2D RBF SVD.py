@@ -168,9 +168,9 @@ def svd_pod(data, rank):
 
 
 def rbf_kernel(x, c, epsilon, kernel):
-    r = np.linalg.norm(x - c, axis=1)
+    r = np.sqrt(np.sum((x - c) ** 2, axis=1))
     if kernel == 'gaussian':
-        return np.exp(-epsilon*epsilon*r*r)
+        return np.exp(-(epsilon*r)**2)
     elif kernel == 'linear':
         return r
     else:
@@ -194,7 +194,6 @@ def rbf_interpolate(X_train, weights, X_new, epsilon, kernel):
     N = X_train.shape[0]    # Número de puntos de entrenamiento
     M = weights.shape[1]    # Número de modos, debe ser 50
     interpolated = np.zeros((N_new, M))  # La forma debe ser (N_new, M)
-    
     for i in range(N_new):
         phi = rbf_kernel(X_new[i], X_train, epsilon, kernel)
 
@@ -245,13 +244,14 @@ def calculations(Cp_interpolated, A_M, Cl_Ac, X, Y):
     t = "New: A = " + str(A_M[0,0]) + " M = " + str(A_M[0,1])
     Cl = compute_CL(Cp_interpolated, X, Y, True, t)
     AC = compute_AC(Cp_interpolated, X, Y, False, t)
+    
     Cl = truncate(Cl)
     AC = truncate(AC)
     print(" CL  = ", Cl, " AC  = ", AC)
     print("OGCL = ", Cl_Ac[0], "OGAC = ", Cl_Ac[1])
 
     computeError([Cl, AC], Cl_Ac)
-
+    
 def main():
     data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Exemple TFG\\CODE\\Naca0012_database_mesh_1\\FOM_Skin_Data"
 
@@ -270,7 +270,7 @@ def main():
     T5OG = [0.37336, 0.23625]
     
     Alpha, Mach, Cp, xpos, ypos = load_data(data_path)
-
+    
     parameters = np.column_stack((Alpha, Mach))
 
     trainCount = int(np.floor(parameters.shape[0] * 0.8))
@@ -282,7 +282,7 @@ def main():
         Cp = reduce_data(Cp, selected_indices, 1)
 
     print("Samples:", parameters.shape[0])
-
+    
     U_r, S_r, Vt_r = svd_pod(Cp, rank)
     coefficients = (Vt_r.T * S_r)
 

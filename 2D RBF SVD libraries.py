@@ -200,7 +200,7 @@ def plot_cp(Cp_real, Cp_interpolado, text):
 trainCount = int(np.floor(2000*0.8))
 epsilon = 95
 rank = 50
-kernel = 'gaussian'
+kernel = 'linear'
 
 AlphaRange = [0, 2]
 MachRange = [0.6, 0.75]
@@ -228,8 +228,6 @@ Data_List = os. listdir("C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Exemple TF
 CP = np.zeros(1)
 Alpha = np.zeros((len(Data_List), 1))
 Mach = np.zeros((len(Data_List), 1))
-xpos = np.array([])
-xpos = np.array([])
 
 i = 0
 while i < len(Data_List):
@@ -247,8 +245,8 @@ while i < len(Data_List):
         xpos = np.zeros(len(lines))
         ypos = np.zeros(len(lines))
 
-    Alpha[i] = paramMatrix[0]
-    Mach[i] = paramMatrix[1]
+    Alpha[i] = float(paramMatrix[0])
+    Mach[i] = float(paramMatrix[1])
 
     if i == 0:
         A = np.zeros((len(lines), len(Data_List))) 
