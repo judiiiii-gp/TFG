@@ -196,6 +196,13 @@ def compute_Cp_error(Cp_real, Cp_interp):
     sim_error = np.linalg.norm(Cp_real-Cp_interp)/np.linalg.norm(Cp_real)
     sim_error = truncate(sim_error)
     print("Error global de la simulación: " + str(sim_error))
+    error_squared = (Cp_real - Cp_interp) ** 2
+    rmse = np.sqrt(np.mean(error_squared))
+    rmse = truncate(rmse)
+    print("Error cuadrático medio: " + str(rmse))
+    error_abs_prom = np.mean(np.abs(Cp_real - Cp_interp))
+    error_abs_prom = truncate(error_abs_prom)
+    print(f"Error absoluto promedio: {error_abs_prom}")
     return abs_error, rel_error
 
 # Function to make a plot to compare the Cp from the simulation and the interpolated Cp
