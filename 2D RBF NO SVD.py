@@ -230,7 +230,7 @@ def load_data(data_path):
     data_list = os.listdir(data_path)
     num_files = len(data_list)
 
-    #We use a file to create the arrays where the values will be stored
+    #We list all the files in the directory
     sample_file = os.path.join(data_path, data_list[0])
     with open(sample_file, 'r') as f:
         num_points = len(f.readlines())
@@ -274,7 +274,6 @@ def calculations(Cp_interpolated, A_M, Cl_Ac, X, Y):
     #We plot the Cp_real vs the Cp_interpolated to see how the interpolation varies from the real one
     text = "A = " + str(A_M[0,0]) + " M = " + str(A_M[0,1])
     plot_cp(Cp_real, Cp_interpolated, text)
-    # hist_plot(Cp_error_abs, text)
     t = "New: A = " + str(A_M[0,0]) + " M = " + str(A_M[0,1])
     #Calculation of the lift and of the aerodynamic centre
     Cl = compute_CL(Cp_interpolated, X, Y, True, t)
@@ -293,6 +292,8 @@ def main():
 
     epsilon = 95
     kernel = 'linear'
+    AlphaRange = [0, 2]
+    MachRange = [0.6, 0.75]
     
     #Values that will be used for the testing
     T1 = np.array([[0.21619, 0.61428]])
@@ -308,7 +309,46 @@ def main():
     
     #We load the data from the database
     Alpha, Mach, Cp, xpos, ypos = load_data(data_path)
+    
+    #We truncate the Alpha and Mach values to 5 decimals
+    Alpha = truncate(Alpha)
+    Mach = truncate(Mach)
 
+    #Creation of an array with all the test samples
+    TestSamples = np.stack((T1.flatten(), T2.flatten(), T3.flatten(), T4.flatten(), T5.flatten()))
+
+    #A range of alpha and Mach has been established. Here we are going to loop through every value of alpha and mach to eliminate the values that are outside the range defined
+    i = 0
+    removeMatrix = np.array([])
+    while i < len(Alpha):
+        #Testing if alpha is within the range
+        if AlphaRange[0] < Alpha[i] < AlphaRange[1]:
+            #Testing if Mach is within the range
+            if MachRange[0] < Mach[i] < MachRange[1]:
+                kk = 0
+            else:
+                #If Mach is not in the range we add this value to the remove Matrix
+                removeMatrix = np.append(removeMatrix, i)
+        else:
+            #If Alpha is not in the range we add this value to the remove matrix
+            removeMatrix = np.append(removeMatrix, i)
+        
+        y = 0
+        #We remove the test samples from the original alpha and Mach matrices
+        while y < TestSamples.shape[0]:
+            if Alpha[i] == TestSamples[y, 0] and Mach[i] == TestSamples[y, 1]:
+                removeMatrix = np.append(removeMatrix, i)
+            y+=1
+
+        i+=1
+
+    #Elimination of the values outside the range
+    removeMatrix = removeMatrix.astype(int)
+
+    Alpha = np.delete(Alpha, removeMatrix, axis=0)
+    Mach = np.delete(Mach, removeMatrix, axis=0)
+    Cp = np.delete(Cp, removeMatrix, axis=1)
+    
     #Creation of an array will all the Alfa and Mach values.
     parameters = np.column_stack((Alpha, Mach))
 
