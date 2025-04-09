@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as pp
 import os
+import time
 
 # Function to calculate the lift coefficient
 def compute_CL(cp, x_c, y_y, show, text):
@@ -159,6 +160,13 @@ def compute_Cp_error(Cp_real, Cp_interp):
     sim_error = np.linalg.norm(Cp_real - Cp_interp) / np.linalg.norm(Cp_real)
     sim_error = truncate(sim_error)
     print("Error global de la simulación: " + str(sim_error))
+    error_squared = (Cp_real - Cp_interp) ** 2
+    rmse = np.sqrt(np.mean(error_squared))
+    rmse = truncate(rmse)
+    print("Error cuadrático medio: " + str(rmse))
+    error_abs_prom = np.mean(np.abs(Cp_real - Cp_interp))
+    error_abs_prom = truncate(error_abs_prom)
+    print(f"Error absoluto promedio: {error_abs_prom}")
     return abs_error, rel_error
 
 # Function to make a plot to compare the Cp from the simulation and the interpolated Cp
@@ -314,7 +322,7 @@ def main():
 
     rank = 50
     epsilon = 95
-    kernel = 'linear'
+    kernel = 'gaussian'
     AlphaRange = [0, 2]
     MachRange = [0.6, 0.75]
     #Values that will be used for the testing
@@ -398,28 +406,48 @@ def main():
 
     #Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.
     print("------ TEST 1 ------")
+    start_time1 = time.perf_counter()
     interpolated_coefficients = rbf_interpolate(parameters, weights, T1, epsilon, kernel)
+    end_time1 = time.perf_counter()
+    elapsed_time1 = end_time1 - start_time1
+    print("Tiempo de ejecucion: " + str(elapsed_time1))
     #We return the interpolated values to the original column space
     reconstructed_cp = interpolated_coefficients @ U_r.T
     calculations(reconstructed_cp.T, T1, T1OG, xpos, ypos)
     
     print("------ TEST 2 ------")
+    start_time2 = time.perf_counter()
     interpolated_coefficients = rbf_interpolate(parameters, weights, T2, epsilon, kernel)
+    end_time2 = time.perf_counter()
+    elapsed_time2 = end_time2 - start_time2
+    print("Tiempo de ejecucion: " + str(elapsed_time2))
     reconstructed_cp = interpolated_coefficients @ U_r.T
     calculations(reconstructed_cp.T, T2, T2OG, xpos, ypos)
     
     print("------ TEST 3 ------")
+    start_time3 = time.perf_counter()
     interpolated_coefficients = rbf_interpolate(parameters, weights, T3, epsilon, kernel)
+    end_time3 = time.perf_counter()
+    elapsed_time3 = end_time3 - start_time3
+    print("Tiempo de ejecucion: " + str(elapsed_time3))
     reconstructed_cp = interpolated_coefficients @ U_r.T
     calculations(reconstructed_cp.T, T3, T3OG, xpos, ypos)
     
     print("------ TEST 4 ------")
+    start_time4 = time.perf_counter()
     interpolated_coefficients = rbf_interpolate(parameters, weights, T4, epsilon, kernel)
+    end_time4 = time.perf_counter()
+    elapsed_time4 = end_time4 - start_time4
+    print("Tiempo de ejecucion: " + str(elapsed_time4))
     reconstructed_cp = interpolated_coefficients @ U_r.T
     calculations(reconstructed_cp.T, T4, T4OG, xpos, ypos)
     
     print("------ TEST 5 ------")
+    start_time5 = time.perf_counter()
     interpolated_coefficients = rbf_interpolate(parameters, weights, T5, epsilon, kernel)
+    end_time5 = time.perf_counter()
+    elapsed_time5 = end_time5 - start_time5
+    print("Tiempo de ejecucion: " + str(elapsed_time5))
     reconstructed_cp = interpolated_coefficients @ U_r.T
     calculations(reconstructed_cp.T, T5, T5OG, xpos, ypos)
     

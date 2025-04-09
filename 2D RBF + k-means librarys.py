@@ -1,8 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as pp
+from ezyrb import POD, RBF, Database
+from ezyrb import ReducedOrderModel as ROM
 import os
-import time
-
+from sklearn.cluster import KMeans
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
 
 # Function to calculate the lift coefficient 
 def compute_CL(cp, x_c, y_y, show, text):
@@ -220,6 +224,7 @@ def rbf_interpolate(X_train, weights, X_new, epsilon, kernel):
     N = X_train.shape[0]    # Number of training points
     M = weights.shape[1]    # Number of modes
     interpolated = np.zeros((N_new, M))  # We create the interpolated matrix, where the interpolated values will be stored
+    
     #We loop through all the new points
     for i in range(N_new):
         #We perform the RBF function ith all the combinations between the new points and the training points. 
@@ -271,159 +276,199 @@ def load_data(data_path):
 
     return Alpha, Mach, Cp, xpos, ypos
 
-#Function where we perform calculations explained before in the functions
-def calculations(Cp_interpolated, A_M, Cl_Ac, X, Y):
+def train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel):
+
+    # Entrenamos k-means con los parámetros (Alpha y Mach)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    cluster_labels = kmeans.fit_predict(parameters)
+
+    rom_clusters = {}
+    # Para cada cluster, extraemos los índices y entrenamos un ROM
+    for cluster in range(n_clusters):
+        indices = np.where(cluster_labels == cluster)[0]
+        if len(indices) == 0:
+            continue
+        params_cluster = parameters[indices, :]
+        Cp_cluster = Cp[:, indices]  # columnas correspondientes
+
+        # Se crea la base de datos y se entrena el modelo ROM para el cluster
+        db_cluster = Database(params_cluster, Cp_cluster.T)
+        pod_cluster = POD('svd', rank=Cp_cluster.shape[1] if Cp_cluster.shape[1] < rank else rank)
+        rbf_cluster = RBF(kernel=kernel, epsilon=epsilon)
+        rom_cluster = ROM(db_cluster, pod_cluster, rbf_cluster)
+        rom_cluster.fit()
+        rom_clusters[cluster] = rom_cluster
+        #print(f"Cluster {cluster}: {len(indices)} muestras.")
+    return kmeans, rom_clusters
+
+def predict_kmeans(test_sample, OGACL, xpos, ypos, kmeans, rom_clusters):
+
+    # Determinar la etiqueta del cluster para la muestra de prueba
+    label = kmeans.predict(np.array(test_sample).reshape(1, -1))[0]
+    #print(f"Test sample {test_sample} asignado al cluster: {label}")
     
-    #We load the file containing the Cp values from the simulation of the corresponding alfa and mach
-    name = 'C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\' + f"Cp_Alfa_{A_M[0,0]}_Mach_{A_M[0,1]}.txt"
+    # Predecir usando el ROM del cluster asignado
+    rom = rom_clusters[label]
+    newCP = rom.predict(np.array(test_sample)).snapshots_matrix  # Cp interpolados
+    newCP = newCP.T
+
+    # Cargar datos reales para comparar
+    name = 'C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\' + f"Cp_Alfa_{test_sample[0]}_Mach_{test_sample[1]}.txt"
     Cp_real = read_filename(name)
-    #Calculation of the Cp errors and the simulation error
-    Cp_error_abs, Cp_error_rel = compute_Cp_error(Cp_real, Cp_interpolated)
-    #We plot the Cp_real vs the Cp_interpolated to see how the interpolation varies from the real one
-    text = "A = " + str(A_M[0,0]) + " M = " + str(A_M[0,1])
-    plot_cp(Cp_real, Cp_interpolated, text)
-    t = "New: A = " + str(A_M[0,0]) + " M = " + str(A_M[0,1])
-    #Calculation of the lift and of the aerodynamic centre
-    Cl = compute_CL(Cp_interpolated, X, Y, True, t)
-    AC = compute_AC(Cp_interpolated, X, Y, False, t)
+    abs_error, rel_error = compute_Cp_error(Cp_real, newCP)
+    text = "A = " + str(test_sample[0]) + " M = " + str(test_sample[1])
+    plot_cp(Cp_real, newCP, text)
+    t = "New: A = " + str(test_sample[0]) + " M = " + str(test_sample[1])
+    Cl = compute_CL(newCP, xpos, ypos, True, t)
+    AC = compute_AC(newCP, xpos, ypos, False, t)
     Cl = truncate(Cl)
     AC = truncate(AC)
     print(" CL  = ", Cl, " AC  = ", AC)
-    print("OGCL = ", Cl_Ac[0], "OGAC = ", Cl_Ac[1])
+    print("OGCL = ", OGACL[0], "OGAC = ", OGACL[1])
+    computeError([Cl, AC], OGACL)
 
-    computeError([Cl, AC], Cl_Ac)
-
-#Main function
-def main():
+def find_optimal_clusters(data, max_k):
+    inertias = []
+    silhouette_scores = []
+    k_values = range(2, max_k + 1)
     
-    data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Exemple TFG\\CODE\\Naca0012_database_mesh_1\\FOM_Skin_Data"
-
-    epsilon = 95
-    kernel = 'linear'
-    AlphaRange = [0, 2]
-    MachRange = [0.6, 0.75]
-    
-    #Values that will be used for the testing
-    T1 = np.array([[0.21619, 0.61428]])
-    T1OG = [0.03294, 0.25495]
-    T2 = np.array([[1.42518, 0.63396]])
-    T2OG = [0.22383, 0.2476]
-    T3 = np.array([[0.87830, 0.72408]])
-    T3OG = [0.17041, 0.24089]
-    T4 = np.array([[1.19373, 0.74891]])
-    T4OG = [0.2735, 0.24321]
-    T5 = np.array([[1.96717, 0.70797]])
-    T5OG = [0.37336, 0.23625]
-    
-    #We load the data from the database
-    Alpha, Mach, Cp, xpos, ypos = load_data(data_path)
-    
-    #We truncate the Alpha and Mach values to 5 decimals
-    Alpha = truncate(Alpha)
-    Mach = truncate(Mach)
-
-    #Creation of an array with all the test samples
-    TestSamples = np.stack((T1.flatten(), T2.flatten(), T3.flatten(), T4.flatten(), T5.flatten()))
-
-    #A range of alpha and Mach has been established. Here we are going to loop through every value of alpha and mach to eliminate the values that are outside the range defined
-    i = 0
-    removeMatrix = np.array([])
-    while i < len(Alpha):
-        #Testing if alpha is within the range
-        if AlphaRange[0] < Alpha[i] < AlphaRange[1]:
-            #Testing if Mach is within the range
-            if MachRange[0] < Mach[i] < MachRange[1]:
-                kk = 0
-            else:
-                #If Mach is not in the range we add this value to the remove Matrix
-                removeMatrix = np.append(removeMatrix, i)
+    for k in k_values:
+        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
+        labels = kmeans.fit_predict(data)
+        inertias.append(kmeans.inertia_)
+        
+        # Silhouette score solo para k > 1
+        if k > 1:
+            silhouette_scores.append(silhouette_score(data, labels))
         else:
-            #If Alpha is not in the range we add this value to the remove matrix
-            removeMatrix = np.append(removeMatrix, i)
-
-        i+=1
-
-    #Elimination of the values outside the range
-    removeMatrix = removeMatrix.astype(int)
-
-    Alpha = np.delete(Alpha, removeMatrix, axis=0)
-    Mach = np.delete(Mach, removeMatrix, axis=0)
-    Cp = np.delete(Cp, removeMatrix, axis=1)
-
+            silhouette_scores.append(0)
     
-    #Creation of an array will all the Alfa and Mach values.
-    parameters = np.column_stack((Alpha, Mach))
+    return k_values, inertias, silhouette_scores
 
-    #Number of parameters that will be used for the training. We are going to use an 80% of all the parameters.
-    trainCount = int(np.floor(parameters.shape[0] * 0.8))
 
-    if parameters.shape[0] > trainCount:
-        #Thanks to this seed, every time the code is executed, the same values will be chosen in this 80%
-        np.random.seed(42)
-        #Selection of the indices corresponding to this 80%
-        selected_indices = np.random.choice(parameters.shape[0], trainCount, replace=False)
-        #We reduce the matrix to the 80%
-        parameters = reduce_data(parameters, selected_indices, 0)
-        Cp = reduce_data(Cp, selected_indices, 1)
+def plot_k_distance(X, k):
 
-    print("Samples:", parameters.shape[0])
-
-    #Computation of the weights of the system
-    weights = compute_rbf_weights(parameters, Cp.T, epsilon, kernel)
+    # Ajustar vecinos
+    nbrs = NearestNeighbors(n_neighbors=k)
+    nbrs.fit(X)
     
-
-    #Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.
-    print("------ TEST 1 ------")
-    start_time1 = time.perf_counter()
-    interpolated_coefficients = rbf_interpolate(parameters, weights, T1, epsilon, kernel)
-    end_time1 = time.perf_counter()
-    elapsed_time1 = end_time1 - start_time1
-    print("Tiempo de ejecucion: " + str(elapsed_time1))
-    reconstructed_cp = interpolated_coefficients
-    calculations(reconstructed_cp.T, T1, T1OG, xpos, ypos)
+    # Calcular distancias a los k vecinos más cercanos
+    distances, _ = nbrs.kneighbors(X)
     
+    # Tomar la distancia al k-ésimo vecino (el último en cada fila)
+    k_distances = np.sort(distances[:, -1])
     
-    print("------ TEST 2 ------")
-    start_time2 = time.perf_counter()
-    interpolated_coefficients = rbf_interpolate(parameters, weights, T2, epsilon, kernel)
-    end_time2 = time.perf_counter()
-    elapsed_time2 = end_time2 - start_time2
-    print("Tiempo de ejecucion: " + str(elapsed_time2))
-    reconstructed_cp = interpolated_coefficients
-    calculations(reconstructed_cp.T, T2, T2OG, xpos, ypos)
-    
-    
-    print("------ TEST 3 ------")
-    start_time3 = time.perf_counter()
-    interpolated_coefficients = rbf_interpolate(parameters, weights, T3, epsilon, kernel)
-    end_time3 = time.perf_counter()
-    elapsed_time3 = end_time3 - start_time3
-    print("Tiempo de ejecucion: " + str(elapsed_time3))
-    reconstructed_cp = interpolated_coefficients
-    calculations(reconstructed_cp.T, T3, T3OG, xpos, ypos)
-    
-    
-    print("------ TEST 4 ------")
-    start_time4 = time.perf_counter()
-    interpolated_coefficients = rbf_interpolate(parameters, weights, T4, epsilon, kernel)
-    end_time4 = time.perf_counter()
-    elapsed_time4 = end_time4 - start_time4
-    print("Tiempo de ejecucion: " + str(elapsed_time4))
-    reconstructed_cp = interpolated_coefficients
-    calculations(reconstructed_cp.T, T4, T4OG, xpos, ypos)
-    
-    
-    print("------ TEST 5 ------")
-    start_time5 = time.perf_counter()
-    interpolated_coefficients = rbf_interpolate(parameters, weights, T5, epsilon, kernel)
-    end_time5 = time.perf_counter()
-    elapsed_time5 = end_time5 - start_time5
-    print("Tiempo de ejecucion: " + str(elapsed_time5))
-    reconstructed_cp = interpolated_coefficients
-    calculations(reconstructed_cp.T, T5, T5OG, xpos, ypos)
-
-    
-
-if __name__ == '__main__':
-    main()
+    # Graficar
+    pp.figure(figsize=(8, 4))
+    pp.plot(k_distances)
+    pp.xlabel("Puntos ordenados")
+    pp.ylabel(f"Distancia al {k}º vecino más cercano")
+    pp.title("Método del codo para elegir eps")
+    pp.grid(True)
+    pp.tight_layout()
     pp.show()
+    
+trainCount = int(np.floor(2000*0.8))
+epsilon = 95
+rank = 50
+kernel = 'gaussian'
+AlphaRange = [0, 2]
+MachRange = [0.6, 0.75]
+max_k = 20
+
+
+#Values that will be used for the testing
+T1 = [0.21619, 0.61428]
+T1OG = [0.03294, 0.25495]
+T2 = [1.42518, 0.63396]
+T2OG = [0.22383, 0.2476]
+T3 = [0.87830, 0.72408]
+T3OG = [0.17041, 0.24089]
+T4 = [1.19373, 0.74891]
+T4OG = [0.2735, 0.24321]
+T5 = [1.96717, 0.70797]
+T5OG = [0.37336, 0.23625]
+
+
+data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\Naca0012_database_mesh_1\\FOM_Skin_Data"
+#We load the data from the database
+Alpha, Mach, Cp, xpos, ypos = load_data(data_path)
+
+#We truncate the Alpha and Mach values to 5 decimals
+Alpha = truncate(Alpha)
+Mach = truncate(Mach)
+
+#Creation of an array with all the test samples
+TestSamples = np.stack((T1, T2, T3, T4, T5))
+
+#A range of alpha and Mach has been established. Here we are going to loop through every value of alpha and mach to eliminate the values that are outside the range defined
+i = 0
+removeMatrix = np.array([])
+while i < len(Alpha):
+    #Testing if alpha is within the range
+    if AlphaRange[0] < Alpha[i] < AlphaRange[1]:
+        #Testing if Mach is within the range
+        if MachRange[0] < Mach[i] < MachRange[1]:
+            kk = 0
+        else:
+            #If Mach is not in the range we add this value to the remove Matrix
+            removeMatrix = np.append(removeMatrix, i)
+    else:
+        #If Alpha is not in the range we add this value to the remove matrix
+        removeMatrix = np.append(removeMatrix, i)
+    
+    y = 0
+    #We remove the test samples from the original alpha and Mach matrices
+    while y < TestSamples.shape[0]:
+        if Alpha[i] == TestSamples[y, 0] and Mach[i] == TestSamples[y, 1]:
+            removeMatrix = np.append(removeMatrix, i)
+        y+=1
+    i+=1
+
+#Elimination of the values outside the range
+removeMatrix = removeMatrix.astype(int)
+Alpha = np.delete(Alpha, removeMatrix, axis=0)
+Mach = np.delete(Mach, removeMatrix, axis=0)
+Cp = np.delete(Cp, removeMatrix, axis=1)
+
+
+
+if(len(Alpha) > trainCount):
+    #Thanks to this seed, every time the code is executed, the same values will be chosen in this 80%
+    np.random.seed(42)
+    #Selection of the indices corresponding to this 80%
+    selected_indices = np.random.choice(len(Alpha), trainCount, replace=False)
+    #We reduce the matrix to the 80%
+    Alpha = reduce_data(Alpha, selected_indices, 0)
+    Mach = reduce_data(Mach, selected_indices, 0)
+    Cp = reduce_data(Cp, selected_indices, 1)
+
+
+#Creation of an array will all the Alfa and Mach values.
+parameters = np.column_stack((Alpha, Mach))
+
+print("Samples: ", len(Alpha))
+
+
+
+
+k_values, inertias, silhouette_scores = find_optimal_clusters(parameters, max_k)
+optimal_k = np.argmax(silhouette_scores) + 2  
+print(f"Número óptimo de clusters: {optimal_k}")
+n_clusters = optimal_k 
+kmeans, rom_clusters = train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel)
+
+
+# Predicciones para las muestras de prueba
+print("--------------T1--------------")
+predict_kmeans(T1, T1OG, xpos, ypos, kmeans, rom_clusters)
+print("--------------T2--------------")
+predict_kmeans(T2, T2OG, xpos, ypos, kmeans, rom_clusters)
+print("--------------T3--------------")
+predict_kmeans(T3, T3OG, xpos, ypos, kmeans, rom_clusters)
+print("--------------T4--------------")
+predict_kmeans(T4, T4OG, xpos, ypos, kmeans, rom_clusters)
+print("--------------T5--------------")
+predict_kmeans(T5, T5OG, xpos, ypos, kmeans, rom_clusters)
+
+pp.show()

@@ -3,6 +3,7 @@ import matplotlib.pyplot as pp
 from ezyrb import POD, RBF, Database
 from ezyrb import ReducedOrderModel as ROM
 import os
+import time
 
 # Function to calculate the lift coefficient 
 def compute_CL(cp, x_c, y_y, show, text):
@@ -347,14 +348,34 @@ rom.fit()
 
 #Prediction of the Cp with the testing samples
 print("--------------T1--------------")
+start_time1 = time.perf_counter()
 CPT1 = predict(T1, T1OG)
+end_time1 = time.perf_counter()
+elapsed_time1 = end_time1 - start_time1
+print("Tiempo de ejecucion: " + str(elapsed_time1))
 print("--------------T2--------------")
+start_time2 = time.perf_counter()
 CPT2 = predict(T2, T2OG)
+end_time2 = time.perf_counter()
+elapsed_time2 = end_time2 - start_time2
+print("Tiempo de ejecucion: " + str(elapsed_time2))
 print("--------------T3--------------")
+start_time3 = time.perf_counter()
 CPT3 = predict(T3, T3OG)
+end_time3 = time.perf_counter()
+elapsed_time3 = end_time3 - start_time3
+print("Tiempo de ejecucion: " + str(elapsed_time3))
 print("--------------T4--------------")
+start_time4 = time.perf_counter()
 CPT4 = predict(T4, T4OG)
+end_time4 = time.perf_counter()
+elapsed_time4 = end_time4 - start_time4
+print("Tiempo de ejecucion: " + str(elapsed_time4))
 print("--------------T5--------------")
+start_time5 = time.perf_counter()
 CPT5 = predict(T5, T5OG)
+end_time5 = time.perf_counter()
+elapsed_time5 = end_time5 - start_time5
+print("Tiempo de ejecucion: " + str(elapsed_time5))
 
 pp.show()
