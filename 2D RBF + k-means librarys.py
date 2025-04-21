@@ -4,237 +4,20 @@ from ezyrb import POD, RBF, Database
 from ezyrb import ReducedOrderModel as ROM
 import os
 from sklearn.cluster import KMeans
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
-
-# Function to calculate the lift coefficient 
-def compute_CL(cp, x_c, y_y, show, text):
-
-    #First we need to separate the values of Cp that correspond to the top of the airfoil from the ones that correspond to the bottom
-    #In this case we will get a matrix that in column 0 it will have the X values and in column 1 the Cp values corresponding to that X
-    CP_lower, CP_upper = separate_Cp(cp, x_c, y_y, show, text)
-
-    #The X values only go from 0 to 1, so here we establish that if some value is greater then 1 it will be eliminated
-    CP_lower = CP_lower[CP_lower[:, 0] < 1]
-    CP_upper = CP_upper[CP_upper[:, 0] < 1]
-
-    #Division between the x_values and the Cp_values into different vectors
-    x_lower, cp_lower = CP_lower[:, 0], CP_lower[:, 1]
-    x_upper, cp_upper = CP_upper[:, 0], CP_upper[:, 1]
-
-    #Performance of the integral of Cp over the X values to find the lift coefficient in the top and in the bottom
-    LOWER = np.trapezoid(cp_lower, x_lower)
-    UPPER = np.trapezoid(cp_upper, x_upper)
-
-    #The total lift coefficient is found
-    lift = LOWER - UPPER
-
-    return lift
-
-# Function to calculate the aerodynamic centre
-def compute_AC(cp, x_c, y_y, show, text):
-
-    #First we separate the Cp values from the top of the airfoil from the ones at the bottom of it
-    CP_lower, CP_upper = separate_Cp(cp, x_c, y_y, show, text)
-    
-    #We perform the same as in the compute_CL function
-    CP_lower = CP_lower[CP_lower[:, 0] < 1]
-    CP_upper = CP_upper[CP_upper[:, 0] < 1]
-
-    x_lower, cp_lower = CP_lower[:, 0], CP_lower[:, 1]
-    x_upper, cp_upper = CP_upper[:, 0], CP_upper[:, 1]
-
-    lift_lower = np.trapezoid(cp_lower, x_lower)
-    lift_upper = np.trapezoid(cp_upper, x_upper)
-    lift = lift_lower - lift_upper
-
-    #To find the moment coefficient we need to integrate the product between Cp*X
-    CM_le_lower = np.trapezoid(cp_lower * x_lower, x_lower)
-    CM_le_upper = np.trapezoid(cp_upper * x_upper, x_upper)
-    CM_le = CM_le_lower - CM_le_upper
-
-    #To find the aerodynamic centre we divide the moment coefficient by the lift coefficient
-    x_ac = CM_le / lift
-
-    return x_ac
-
-# Function to separate the Cp values above the airfoil from the ones below the airfoil
-def separate_Cp(cp1, x1, y1, show, text):
-
-    #Creation of the lists where the values will be saved
-    CPlower = []
-    xlower = []
-    CPupper = []
-    xupper = []
-
-    #We loop through all the Cp values
-    for i in range(len(cp1)):
-        #The value of x cannot be greater than 1, so if it's greater the point won't be added
-        if x1[i] < 1:
-            #y = 0 means the center of the airfoil, so if y<0 it means that it corresponds to the values of the bottom of the airfoil
-            if y1[i] < 0:
-                CPlower.append(cp1[i])
-                xlower.append(x1[i])
-            #If y is positive, the values will correspond to the top of the airfoil
-            else:
-                CPupper.append(cp1[i])
-                xupper.append(x1[i])
-
-    #Conversion of the lists into arrays
-    CPlower = np.array(CPlower)
-    CPupper = np.array(CPupper)
-    xlower = np.array(xlower)
-    xupper = np.array(xupper)
-
-    #In the plots the pressure distribution is separated between the top one and the bottom one
-    if show:
-
-        pp.figure()
-        pp.plot(xupper, CPupper, label="Upper Surface", marker="o")
-        pp.plot(xlower, CPlower, label="Lower Surface", marker="x")
-        pp.gca().invert_yaxis()  # Inversion of the y axis, so the negative values are shown in the top part
-        pp.title("Pressure Coefficient (Cp) Distribution " + text)
-        pp.xlabel("x")
-        pp.ylabel("Cp")
-        pp.legend()
-        pp.grid()
-        pp.show(block=False)
-
-    #We create an array for the lower values and an array for the upper values
-    lower_array = np.column_stack((xlower, CPlower))
-    upper_array = np.column_stack((xupper, CPupper))
-
-    return lower_array, upper_array
-
-# Function to truncate the decimals
-def truncate(arr, decimals=5):
-    factor = 10.0 ** decimals
-    return np.floor(arr * factor) / factor
-
-# Function to calculate the error in the lift coefficient and in the aerodynamic centre
-def computeError(ACL, OGACL):
-
-    print("-----CL-----")
-
-    newCL = ACL[0]
-    ogCL = OGACL[0]
-
-    #Calculation of the absolute error and truncation of the result
-    CL_abs_error = truncate(np.abs(ogCL - newCL))
-    #Calculation of the relative error and truncation of the result
-    CL_rel_error = truncate((CL_abs_error / ogCL) * 100)
-
-    print(str(CL_abs_error))
-    print(str(CL_rel_error), "%")
-
-    print("-----AC-----")
-
-    newAC = ACL[1]
-    ogAC = OGACL[1]
-
-    #Same calculation as the one made for the lift coefficient
-    AC_abs_error = truncate(np.abs(ogAC - newAC))
-    AC_rel_error = truncate((AC_abs_error / ogAC) * 100)
-
-    print(str(AC_abs_error))
-    print(str(AC_rel_error), "%")
-
-    #We return an array with the error values
-    return np.array([[CL_abs_error, CL_rel_error], [AC_abs_error, AC_rel_error]])
-
-# Function to read a file with the Cp values from the simulation
-def read_filename(filename):
-    try:
-        #We load the values inside the file and save them in Cp_values. The values in the file are separated by ';'
-        Cp_values = np.loadtxt(filename, delimiter=";")
-        return Cp_values
-    except Exception as e:
-        print(f"Error al leer el fichero {filename} : {e}")
-        return None
-
-# Function to calculate the error between the Cp from the simulation and the Cp interpolated
-def compute_Cp_error(Cp_real, Cp_interp):
-    
-    #Calculation of the absolute error of each point. We get a vector that has the absolute error of each value of Cp
-    abs_error = np.abs(Cp_real - Cp_interp)
-    #Calculation of the relative error of each point. We get a vector that has the relative error of each value of Cp
-    rel_error = (abs_error / np.abs(Cp_real)) * 100
-
-    #Calculation of the simulation error by obtaining the module of the relative error's vector, and dividing it by the module of the real Cp.
-    sim_error = np.linalg.norm(Cp_real - Cp_interp) / np.linalg.norm(Cp_real)
-    sim_error = truncate(sim_error)
-    print("Error global de la simulación: " + str(sim_error))
-    error_squared = (Cp_real - Cp_interp) ** 2
-    rmse = np.sqrt(np.mean(error_squared))
-    rmse = truncate(rmse)
-    print("Error cuadrático medio: " + str(rmse))
-    error_abs_prom = np.mean(np.abs(Cp_real - Cp_interp))
-    error_abs_prom = truncate(error_abs_prom)
-    print(f"Error absoluto promedio: {error_abs_prom}")
-    return abs_error, rel_error
-
-# Function to make a plot to compare the Cp from the simulation and the interpolated Cp
-def plot_cp(Cp_real, Cp_interpolado, text):
-    pp.figure()
-    pp.scatter(Cp_real, Cp_interpolado, color='blue', label='Cp interpolado vs Cp real')
-    pp.plot([min(Cp_real), max(Cp_real)], [min(Cp_real), max(Cp_real)], color='red', linestyle='--', label='Interpolación perfecta (y = x)')
-
-    pp.xlabel('Cp real')
-    pp.ylabel('Cp interpolado')
-    pp.title('Comparación de Cp real vs Cp interpolado ' + text)
-    pp.legend()
-    pp.grid(True)
+from sklearn.preprocessing import StandardScaler
 
 #Function to reduce the amount of data. We only need 80% of the data to train the model.
 #This function allows us to take the values that correspond to the indices established
 def reduce_data(data, indices, axis):
+    
     return data.take(indices, axis=axis)
 
-#Function that implements the RBF function
-def rbf_kernel(x, c, epsilon, kernel):
-    #Calculation fo the Euclidean distance between the points
-    r = np.linalg.norm(x - c, axis=1)
-    #If we choose the gaussian function
-    if kernel == 'gaussian':
-        return np.exp(-epsilon*epsilon*r*r)
-    #If we choose the linear function
-    elif kernel == 'linear':
-        return r
-    else:
-        raise ValueError("Unsupported kernel type")
-
-#Function to compute the weights of the system
-def compute_rbf_weights(X, Y, epsilon, kernel):
-    #Creation of a matrix that will have all the results from the RBF function
-    N = X.shape[0]
-    A = np.zeros((N, N))
-    #We loop through all X values, to perform the RBF function with all the combinations in X. The results from all the combinations are stored in A.
-    for i in range(N):
-        A[i, :] = rbf_kernel(X[i], X, epsilon, kernel)
-    
-    #We solve the linear system to find the weights
-    weights = np.linalg.solve(A, Y)
-
-    return weights
-
-#Function that performs the interpolation
-def rbf_interpolate(X_train, weights, X_new, epsilon, kernel):
-    N_new = X_new.shape[0]  # Number of new points
-    N = X_train.shape[0]    # Number of training points
-    M = weights.shape[1]    # Number of modes
-    interpolated = np.zeros((N_new, M))  # We create the interpolated matrix, where the interpolated values will be stored
-    
-    #We loop through all the new points
-    for i in range(N_new):
-        #We perform the RBF function ith all the combinations between the new points and the training points. 
-        phi = rbf_kernel(X_new[i], X_train, epsilon, kernel)
-        
-        #By performing the dot product between the vector of the results obtained from the RBF function and the vector of the system's weights
-        #we find the interpolated value, which is saved in the interpolated matrix
-        interpolated[i, :] = np.dot(phi, weights)
-    
-    return interpolated
+# Function to truncate the decimals
+def truncate(arr, decimals = 5):
+    factor = 10.0 ** decimals
+    return np.floor(arr * factor) / factor
 
 #Function to load the simulation data
 def load_data(data_path):
@@ -276,106 +59,45 @@ def load_data(data_path):
 
     return Alpha, Mach, Cp, xpos, ypos
 
-def train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel):
+def encontrar_k_optimo(Cp_t, k_max=10):
+    inercias = []
+    sil_scores = []
 
-    # Entrenamos k-means con los parámetros (Alpha y Mach)
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    cluster_labels = kmeans.fit_predict(parameters)
+    Ks = range(2, k_max + 1)  # comenzamos desde 2 clusters
 
-    rom_clusters = {}
-    # Para cada cluster, extraemos los índices y entrenamos un ROM
-    for cluster in range(n_clusters):
-        indices = np.where(cluster_labels == cluster)[0]
-        if len(indices) == 0:
-            continue
-        params_cluster = parameters[indices, :]
-        Cp_cluster = Cp[:, indices]  # columnas correspondientes
+    for k in Ks:
+        kmeans = KMeans(n_clusters=k, random_state=0)
+        labels = kmeans.fit_predict(Cp_t)
+        inercias.append(kmeans.inertia_)
+        sil_scores.append(silhouette_score(Cp_t, labels))
 
-        # Se crea la base de datos y se entrena el modelo ROM para el cluster
-        db_cluster = Database(params_cluster, Cp_cluster.T)
-        pod_cluster = POD('svd', rank=Cp_cluster.shape[1] if Cp_cluster.shape[1] < rank else rank)
-        rbf_cluster = RBF(kernel=kernel, epsilon=epsilon)
-        rom_cluster = ROM(db_cluster, pod_cluster, rbf_cluster)
-        rom_cluster.fit()
-        rom_clusters[cluster] = rom_cluster
-        #print(f"Cluster {cluster}: {len(indices)} muestras.")
-    return kmeans, rom_clusters
+    # Plot del método del codo
+    pp.figure(figsize=(12, 5))
 
-def predict_kmeans(test_sample, OGACL, xpos, ypos, kmeans, rom_clusters):
+    pp.subplot(1, 2, 1)
+    pp.plot(Ks, inercias, 'bo-')
+    pp.xlabel('Número de Clusters (k)')
+    pp.ylabel('Inercia')
+    pp.title('Método del Codo')
 
-    # Determinar la etiqueta del cluster para la muestra de prueba
-    label = kmeans.predict(np.array(test_sample).reshape(1, -1))[0]
-    #print(f"Test sample {test_sample} asignado al cluster: {label}")
-    
-    # Predecir usando el ROM del cluster asignado
-    rom = rom_clusters[label]
-    newCP = rom.predict(np.array(test_sample)).snapshots_matrix  # Cp interpolados
-    newCP = newCP.T
+    # Plot del coeficiente de silhouette
+    pp.subplot(1, 2, 2)
+    pp.plot(Ks, sil_scores, 'go-')
+    pp.xlabel('Número de Clusters (k)')
+    pp.ylabel('Silhouette Score')
+    pp.title('Coeficiente de Silhouette')
 
-    # Cargar datos reales para comparar
-    name = 'C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\' + f"Cp_Alfa_{test_sample[0]}_Mach_{test_sample[1]}.txt"
-    Cp_real = read_filename(name)
-    abs_error, rel_error = compute_Cp_error(Cp_real, newCP)
-    text = "A = " + str(test_sample[0]) + " M = " + str(test_sample[1])
-    plot_cp(Cp_real, newCP, text)
-    t = "New: A = " + str(test_sample[0]) + " M = " + str(test_sample[1])
-    Cl = compute_CL(newCP, xpos, ypos, True, t)
-    AC = compute_AC(newCP, xpos, ypos, False, t)
-    Cl = truncate(Cl)
-    AC = truncate(AC)
-    print(" CL  = ", Cl, " AC  = ", AC)
-    print("OGCL = ", OGACL[0], "OGAC = ", OGACL[1])
-    computeError([Cl, AC], OGACL)
-
-def find_optimal_clusters(data, max_k):
-    inertias = []
-    silhouette_scores = []
-    k_values = range(2, max_k + 1)
-    
-    for k in k_values:
-        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
-        labels = kmeans.fit_predict(data)
-        inertias.append(kmeans.inertia_)
-        
-        # Silhouette score solo para k > 1
-        if k > 1:
-            silhouette_scores.append(silhouette_score(data, labels))
-        else:
-            silhouette_scores.append(0)
-    
-    return k_values, inertias, silhouette_scores
-
-
-def plot_k_distance(X, k):
-
-    # Ajustar vecinos
-    nbrs = NearestNeighbors(n_neighbors=k)
-    nbrs.fit(X)
-    
-    # Calcular distancias a los k vecinos más cercanos
-    distances, _ = nbrs.kneighbors(X)
-    
-    # Tomar la distancia al k-ésimo vecino (el último en cada fila)
-    k_distances = np.sort(distances[:, -1])
-    
-    # Graficar
-    pp.figure(figsize=(8, 4))
-    pp.plot(k_distances)
-    pp.xlabel("Puntos ordenados")
-    pp.ylabel(f"Distancia al {k}º vecino más cercano")
-    pp.title("Método del codo para elegir eps")
-    pp.grid(True)
     pp.tight_layout()
     pp.show()
-    
-trainCount = int(np.floor(2000*0.8))
-epsilon = 95
-rank = 50
-kernel = 'gaussian'
+
+    k_silhouette = Ks[np.argmax(sil_scores)]
+    print(f"🔍 Mejor k según Silhouette Score: {k_silhouette}")
+
+    return k_silhouette
+
 AlphaRange = [0, 2]
 MachRange = [0.6, 0.75]
-max_k = 20
-
+trainCount = int(np.floor(2000*0.8))
 
 #Values that will be used for the testing
 T1 = [0.21619, 0.61428]
@@ -443,32 +165,27 @@ if(len(Alpha) > trainCount):
     Mach = reduce_data(Mach, selected_indices, 0)
     Cp = reduce_data(Cp, selected_indices, 1)
 
+print("Samples: ", len(Alpha))
 
 #Creation of an array will all the Alfa and Mach values.
 parameters = np.column_stack((Alpha, Mach))
+X_total = np.hstack([Cp.T, parameters])
+scaler = StandardScaler()
+X_normalizado = scaler.fit_transform(X_total)
 
-print("Samples: ", len(Alpha))
-
-
-
-
-k_values, inertias, silhouette_scores = find_optimal_clusters(parameters, max_k)
-optimal_k = np.argmax(silhouette_scores) + 2  
-print(f"Número óptimo de clusters: {optimal_k}")
-n_clusters = optimal_k 
-kmeans, rom_clusters = train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel)
-
-
-# Predicciones para las muestras de prueba
-print("--------------T1--------------")
-predict_kmeans(T1, T1OG, xpos, ypos, kmeans, rom_clusters)
-print("--------------T2--------------")
-predict_kmeans(T2, T2OG, xpos, ypos, kmeans, rom_clusters)
-print("--------------T3--------------")
-predict_kmeans(T3, T3OG, xpos, ypos, kmeans, rom_clusters)
-print("--------------T4--------------")
-predict_kmeans(T4, T4OG, xpos, ypos, kmeans, rom_clusters)
-print("--------------T5--------------")
-predict_kmeans(T5, T5OG, xpos, ypos, kmeans, rom_clusters)
-
+k_max = 40
+k_optimo = encontrar_k_optimo(X_normalizado, k_max)
+kmeans = KMeans(n_clusters=k_optimo, random_state=0)
+labels = kmeans.fit_predict(X_normalizado)
+pp.figure(figsize=(8, 6))
+for i in range(k_optimo):
+    idx = labels == i
+    pp.scatter(parameters[idx, 0], parameters[idx, 1], label=f'Cluster {i}')
+    
+pp.xlabel('Alpha (°)')
+pp.ylabel('Mach')
+pp.title('K-Means Clustering de Simulaciones')
+pp.legend()
+pp.grid(True)
+pp.tight_layout()
 pp.show()
