@@ -3,6 +3,11 @@ import numpy as np
 import os
 from mpl_toolkits.mplot3d import Axes3D 
 from scipy.interpolate import griddata
+from scipy.interpolate import interp1d
+import matplotlib.tri as mtri
+import matplotlib.cm as cm
+from scipy.spatial import Delaunay, ConvexHull
+from scipy.integrate import simpson
 
 #Function to load the simulation data
 def load_data(data_path):
@@ -46,29 +51,65 @@ def load_data(data_path):
 
     return Alpha, Mach, Cp, xpos, ypos, zpos
 
-def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach, idx):
-    fig = plt.figure(figsize=(10, 6))
-    ax = fig.add_subplot(111, projection='3d')
-    print(Cp[:, idx])
-    sc = ax.scatter(xpos, ypos, zpos, c=Cp[:, idx], cmap='viridis')
+def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach):
+
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(projection='3d')
+    sc = ax.scatter(xpos, ypos, zpos, c=Cp, cmap='viridis')
     fig.colorbar(sc, ax=ax, label='Cp')
     ax.set_title(f'Cp distribution (Alpha={Alpha[idx, 0]}, Mach={Mach[idx, 0]})')
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-
-def plot_cp_2d(xpos, Cp, Alpha, Mach, idx):
-
-    plt.figure(figsize=(10, 6))
-    scatter = plt.scatter(xpos, ypos, c=Cp[:, idx], cmap='viridis')
-    plt.colorbar(scatter, label='$C_p$')
-    plt.title(f'Distribución de $C_p$ en (x, y) - Alpha = {Alpha[idx, 0]}°, Mach = {Mach[idx, 0]}')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.axis('equal')
-    plt.grid(True)
-    plt.tight_layout()
     
+    ax.view_init(elev=30, azim=135) 
+
+    ax.set_xlim(xpos.min(), xpos.max())
+    ax.set_ylim(ypos.min(), ypos.max())
+    ax.set_zlim([-0.25, 0.25])
+    plt.tight_layout()
+
+def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
+
+    plt.rcParams['xtick.direction'] = 'in'
+    plt.rcParams['ytick.direction'] = 'in'
+    plt.rcParams['xtick.major.size'] = 5
+    plt.rcParams['xtick.minor.size'] = 3
+    plt.rcParams['ytick.major.size'] = 5
+    plt.rcParams['ytick.minor.size'] = 3
+    
+    norm = plt.Normalize(vmin=Cp.min(), vmax=Cp.max())
+    mask = ypos > 0 
+    xpos = xpos[mask]
+    ypos = ypos[mask]
+    Cp = Cp[mask]
+    # 1) Triangulamos TODOS los puntos (sin filtrar antes)
+    triang = mtri.Triangulation(xpos, ypos)
+
+    # 2) Enmascaramos triángulos por debajo de y=0 (opcional)
+    # bar_y = np.mean(ypos[triang.triangles], axis=1)
+    # triang.set_mask(bar_y <= 0)
+
+    # 3) Pintamos con shading='gouraud' (interpolación continua)
+    fig, ax = plt.subplots(figsize=(8,8))
+    tpc = ax.tripcolor(triang,Cp.squeeze(),norm = norm ,cmap='viridis', edgecolors='none', linewidth = 0.8)
+
+    # opcional: contornos suaves
+    levels = np.linspace(Cp.min(), Cp.max(), 60)
+    ax.tricontourf(triang, Cp.squeeze(), levels=levels, cmap='viridis', alpha=0.0)
+
+    # colorbar y estética
+    cbar = fig.colorbar(tpc, ax=ax, label='PRESSURE COEFFICIENT')
+    math_label_fontsize = 14
+    cbar.ax.tick_params(labelsize=math_label_fontsize)
+    x_label = r'$x$'
+    y_label = r'$y$'
+    plt.xlabel(x_label, fontsize = math_label_fontsize)
+    plt.ylabel(y_label, fontsize = math_label_fontsize)
+    plt.title(f'Cp distribution (Alpha={Alpha[idx, 0]}, Mach={Mach[idx, 0]})')
+    plt.tight_layout()
+
+
 def load_validation_file(directory_path, section):
     
     filename = f'cp_{section}.dat'
@@ -88,29 +129,42 @@ def load_validation_file(directory_path, section):
         return None, None
 
 def plot_cp_2d_xz(xpos, ypos, zpos, Cp, Alpha, Mach):
-    labels = [99, 95, 90, 80, 65, 44, 20]
+    labels = [95, 90, 80, 65, 44, 20]
     
-    #### FOM ######
-    indexes    = zpos > 0
-    x_fom      = xpos[indexes]
-    y_fom      = ypos[indexes]
-    cp_fom     = Cp[indexes]
-    indexes    = zpos <= 0
-    x_fom_inf  = xpos[indexes]
-    y_fom_inf  = ypos[indexes]
-    cp_fom_inf = Cp[indexes]
-    
-    #### ROM ######
-    indexes    = zpos > 0
-    cp_rom     = Cp[indexes]
-    indexes    = zpos <= 0
-    cp_rom_inf = Cp[indexes]
 
-    #### RBF ######
-    indexes    = zpos > 0
-    cp_rbf     = Cp[indexes]
-    indexes    = zpos <= 0
-    cp_rbf_inf = Cp[indexes]
+    #### FOM ######
+    x_fom_up = []
+    y_fom_up = []
+    z_fom_up = []
+    cp_fom_up = []
+    x_fom_down = []
+    y_fom_down = []
+    z_fom_down = []
+    cp_fom_down = []
+    
+    i = 0
+    while i< len(zpos):
+        if (zpos[i]>0):
+            x_fom_up.append(xpos[i])
+            y_fom_up.append(ypos[i])
+            z_fom_up.append(zpos[i])
+            cp_fom_up.append(Cp[i])
+        else:
+            x_fom_down.append(xpos[i])
+            y_fom_down.append(ypos[i])
+            z_fom_down.append(zpos[i])
+            cp_fom_down.append(Cp[i])
+        i += 1
+    x_fom_up = np.array(x_fom_up).squeeze() 
+    y_fom_up = np.array(y_fom_up).squeeze() 
+    z_fom_up = np.array(z_fom_up).squeeze() 
+    cp_fom_up = np.array(cp_fom_up).squeeze() 
+    x_fom_down = np.array(x_fom_down).squeeze() 
+    y_fom_down = np.array(y_fom_down).squeeze() 
+    z_fom_down = np.array(z_fom_down).squeeze() 
+    cp_fom_down = np.array(cp_fom_down).squeeze() 
+    
+
     
     for section in range(6):
         fig = plt.figure(figsize=(4, 3))
@@ -128,28 +182,16 @@ def plot_cp_2d_xz(xpos, ypos, zpos, Cp, Alpha, Mach):
         
         #VALIDATION#
         dir = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\BBDD 3D\\reference_data\\onera\\experiment"
-        X, Cp = load_validation_file(dir, labels[section])
-        plt.plot(X, Cp, '-', color = 'blue', linewidth = 1.7, label = "Exp.")
+        X, Cp_val = load_validation_file(dir, labels[section])
+        plt.plot(X, Cp_val, '-', color = 'green', linewidth = 1.7, label = "Exp.")
         
         # # #FOM#
-        # cp_interpolated_fom = griddata((x_fom, y_fom), cp_fom, (x_grid, y_target), method='linear', fill_value=0.25)
-        # cp_interpolated_fom_inf = griddata((x_fom_inf, y_fom_inf), cp_fom_inf, (x_grid, y_target), method='linear')
-        # cp_interpolated_fom_full = np.concatenate((cp_interpolated_fom, cp_interpolated_fom_inf[::-1]))
-        # plt.plot(x_airfoil_normalized_full, -cp_interpolated_fom_full, '-', color='blue', linewidth=1.5, label='FOM')
+        cp_interpolated_fom = griddata((x_fom_up, y_fom_up), cp_fom_up, (x_grid,y_target), method='linear', fill_value=0.25)
+        cp_interpolated_fom_inf = griddata((x_fom_down, y_fom_down), cp_fom_down, (x_grid,y_target), method='linear', fill_value=0.25)
+        cp_interpolated_fom_full = np.concatenate((cp_interpolated_fom, cp_interpolated_fom_inf[::-1]))
+        plt.plot(x_airfoil_normalized_full, -cp_interpolated_fom_full, '-', color='blue', linewidth=1.5, label='FOM')
 
-        # #### ROM ######
-            
-        # cp_interpolated_rom = griddata((x_fom, y_fom), cp_rom, (x_grid, y_target), method='linear')
-        # cp_interpolated_rom_inf = griddata((x_fom_inf, y_fom_inf), cp_rom_inf, (x_grid, y_target), method='linear')
-        # cp_interpolated_rom_full = np.concatenate((cp_interpolated_rom, cp_interpolated_rom_inf[::-1]))
-        # plt.plot(x_airfoil_normalized_full, -cp_interpolated_rom_full, '-', color='red', linewidth=1.3, label=f"ROM")
-
-        # #### RBF ######
-        # cp_interpolated_rbf = griddata((x_fom, y_fom), cp_rbf, (x_grid, y_target), method='linear')
-        # cp_interpolated_rbf_inf = griddata((x_fom_inf, y_fom_inf), cp_rbf_inf, (x_grid, y_target), method='linear')
-        # cp_interpolated_rbf_full = np.concatenate((cp_interpolated_rbf, cp_interpolated_rbf_inf[::-1]))
-        # plt.plot(x_airfoil_normalized_full, -cp_interpolated_rbf_full, '--', color='green', linewidth=1.1, label=f"RBF")
-
+        
         plt.xlim(-0.1, 1.1)
         plt.ylim(-1.0, 1.3)
 
@@ -159,20 +201,127 @@ def plot_cp_2d_xz(xpos, ypos, zpos, Cp, Alpha, Mach):
         y_label = r'$-C_p$'
         plt.xlabel(x_label, fontsize = math_label_fontsize)
         plt.ylabel(y_label, fontsize = math_label_fontsize)
-
+        plt.title("Plot section y = " + str(labels[section]))
         plt.legend(loc='upper right')
         plt.tight_layout()
+
+def plot_cp(Cp_real, Cp_interpolado, text):
+    plt.figure()
+    plt.scatter(Cp_real, Cp_interpolado, color='blue', label='Cp interpolado vs Cp real')
+    plt.plot([min(Cp_real), max(Cp_real)], [min(Cp_real), max(Cp_real)], color='red', linestyle='--', label='Interpolación perfecta (y = x)')
+
+    plt.xlabel('Cp real')
+    plt.ylabel('Cp interpolado')
+    plt.title('Comparación de Cp real vs Cp interpolado ' + text)
+    plt.legend()
+    plt.grid(True)
+
+def separate_Cp(xpos, ypos, zpos, Cp):
+    i = 0
+    x_fom_up = []
+    y_fom_up = []
+    z_fom_up = []
+    cp_fom_up = []
+    x_fom_down = []
+    y_fom_down = []
+    z_fom_down = []
+    cp_fom_down = []
+    while i< len(zpos):
+        if (zpos[i]>0):
+            x_fom_up.append(xpos[i])
+            y_fom_up.append(ypos[i])
+            z_fom_up.append(zpos[i])
+            cp_fom_up.append(Cp[i])
+        else:
+            x_fom_down.append(xpos[i])
+            y_fom_down.append(ypos[i])
+            z_fom_down.append(zpos[i])
+            cp_fom_down.append(Cp[i])
+        i += 1
+    x_fom_up = np.array(x_fom_up).squeeze() 
+    y_fom_up = np.array(y_fom_up).squeeze() 
+    z_fom_up = np.array(z_fom_up).squeeze() 
+    cp_fom_up = np.array(cp_fom_up).squeeze() 
+    x_fom_down = np.array(x_fom_down).squeeze() 
+    y_fom_down = np.array(y_fom_down).squeeze() 
+    z_fom_down = np.array(z_fom_down).squeeze() 
+    cp_fom_down = np.array(cp_fom_down).squeeze() 
+    
+    return x_fom_up, y_fom_up, z_fom_up, cp_fom_up, x_fom_down, y_fom_down, z_fom_down, cp_fom_down
+
+def integrate_surface(x, y, z, cp, is_upper):
+
+    pts2d = np.vstack((x, y)).T
+    tri = Delaunay(pts2d)
+
+    lift = 0.0
+    for tri_idx in tri.simplices:
+        # puntos en 3D
+        p1 = np.array([x[tri_idx[0]], y[tri_idx[0]], z[tri_idx[0]]])
+        p2 = np.array([x[tri_idx[1]], y[tri_idx[1]], z[tri_idx[1]]])
+        p3 = np.array([x[tri_idx[2]], y[tri_idx[2]], z[tri_idx[2]]])
+
+        # vector-área (módulo del área en z)
+        dA_vec = np.cross(p2 - p1, p3 - p1) / 2.0
+        area = abs(dA_vec[2])
+
+        cp_avg = cp[tri_idx].mean()
+
+        # signo según superficie:
+        # - en la cara superior, dA_z > 0 orienta normal hacia +z,
+        #   y la fuerza es -Cp * area
+        # - en la cara inferior, normal apunta hacia -z,
+        #   y la fuerza de sustentación (hacia +z) es +Cp * area
+        if is_upper:
+            lift += -cp_avg * area
+        else:
+            lift +=  cp_avg * area
+
+    return lift
+
+def compute_cl(x, y, z, cp, S_ref):
+
+    # Separa tuplas (x_up, y_up, z_up, cp_up), (x_low, y_low, z_low, cp_low)
+    x_up,  y_up,  z_up,  cp_up, \
+    x_low, y_low, z_low, cp_low = separate_Cp(x, y, z, cp)
+
+    # Integral en cada superficie
+    L_up   = integrate_surface(x_up,  y_up,  z_up,  cp_up, True)
+    L_low  = integrate_surface(x_low, y_low, z_low, cp_low, False)
+
+    # Lift neto y CL
+    L_net  = L_up + L_low
+    CL     = L_net / S_ref
+    return CL
 
 data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\BBDD 3D\\FOM_Skin_Data"
 Alpha, Mach, Cp, xpos, ypos, zpos = load_data(data_path)
 parameters = np.column_stack((Alpha, Mach))
-alfa = 0.15232
-mach = 0.60535
+
+alfa = 3.06
+mach = 0.839
 parameters = np.round(parameters, 5)
 idx = np.where((parameters[:, 0] == alfa) & (parameters[:, 1] == mach))[0]
+cp_case = Cp[:, idx] 
 
-plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach, idx)
-plot_cp_2d(xpos, Cp, Alpha, Mach, idx)
-plot_cp_2d_xz(xpos, ypos, zpos, Cp, Alpha, Mach)
+
+plot_cp_3d(xpos, ypos, zpos, cp_case, Alpha, Mach)
+#plot_cp_2d(xpos, ypos, cp_case, Alpha, Mach)
+#plot_cp_2d_xz(xpos, ypos, zpos, cp_case, Alpha, Mach)
+
+# Tus puntos como array de N x 3
+puntos = np.column_stack((xpos, ypos, zpos))
+
+# Proyección en XY para crear la malla
+tri = Delaunay(np.column_stack((xpos, ypos)))
+
+# tri.simplices contiene los índices de los triángulos
+triangulos = tri.simplices
+S=0.7532
+
+cp_case = cp_case.flatten()
+Cl = compute_cl(xpos, ypos, zpos,  cp_case, S)
+print(Cl)
+
 
 plt.show()

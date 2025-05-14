@@ -7,6 +7,10 @@ from scipy.interpolate import griddata
 from ezyrb import POD, RBF, Database
 from ezyrb import ReducedOrderModel as ROM
 import matplotlib.tri as mtri
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import silhouette_score
 
 
 #Function to reduce the amount of data. We only need 80% of the data to train the model.
@@ -375,186 +379,300 @@ def compute_cl(x, y, z, cp, S_ref):
     print("Cl = " + str(CL))
     return CL
 
-def main():
-    
-    data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\BBDD 3D\\FOM_Skin_Data"
-    rank = 50
-    epsilon = 10
-    kernel = 'gaussian'
-    AlphaRange = [0, 3.5]
-    MachRange = [0.6, 0.85]
-    S=0.7532
+def train_cluster_classifier(features, cluster_labels, n_neighbors=5):
 
-    T1 = np.array([[0.15232, 0.60535]])
-    Cl_1 = 0.01168
-    T2 = np.array([[1.0615, 0.62832]])
-    Cl_2 = 0.07651
-    T3 = np.array([[2.15525, 0.73018]])
-    Cl_3 = 0.16625
-    T4 = np.array([[2.89353, 0.79088]])
-    Cl_4 = 0.23897
-    T5 = np.array([[3.44724, 0.80288]])
-    Cl_5 = 0.29121
+    # Usamos solo (alfa, mach) para clasificación
+    X = features[:, -2:]  # columnas alfa y mach
+    y = cluster_labels
+    clf = KNeighborsClassifier(n_neighbors=n_neighbors)
+    clf.fit(X, y)
+    return clf
+
+def assign_cluster(classifier, test_point):
+
+    test_point_normalized = scaler_inputs.transform(test_point)
+    cluster_label = classifier.predict(test_point_normalized)
+    return cluster_label[0]
+
+def train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, cluster_labels):
+
+    rom_clusters = {}
+    # Para cada cluster, extraemos los índices y entrenamos un ROM
+    for cluster in range(n_clusters):
+        indices = np.where(cluster_labels == cluster)[0]
+        if len(indices) == 0:
+            continue
+        params_cluster = parameters[indices, :]
+        Cp_cluster = Cp[:, indices]  # columnas correspondientes
+
+        # Se crea la base de datos y se entrena el modelo ROM para el cluster
+        db_cluster = Database(params_cluster, Cp_cluster.T)
+        pod_cluster = POD('svd', rank=Cp_cluster.shape[1] if Cp_cluster.shape[1] < rank else rank)
+        rbf_cluster = RBF(kernel=kernel, epsilon=epsilon)
+        rom_cluster = ROM(db_cluster, pod_cluster, rbf_cluster)
+        rom_cluster.fit()
+        rom_clusters[cluster] = rom_cluster
+        print(f"Cluster {cluster}: {len(indices)} muestras.")
+    return rom_clusters
+
+def predict_kmeans(test_sample, OGACL, xpos, ypos, kmeans, rom_clusters, clas):
+
+
+    label = assign_cluster(clas, test_sample)
+    # Determinar la etiqueta del cluster para la muestra de prueba
     
-    Alpha, Mach, Cp, xpos, ypos, zpos = load_data(data_path)
+    print(f"Test sample {test_sample} asignado al cluster: {label}")
+    
+    # Predecir usando el ROM del cluster asignado
+    rom = rom_clusters[label]
+    newCP = rom.predict(np.array(test_sample)).snapshots_matrix  # Cp interpolados
+    newCP = newCP.T
+    
+    return newCP
+    
+def encontrar_k_optimo(Cp_t, k_max=10):
+    inercias = []
+    sil_scores = []
+
+    Ks = range(2, k_max + 1)  # comenzamos desde 2 clusters
+
+    for k in Ks:
+        kmeans = KMeans(n_clusters=k, random_state=0)
+        labels = kmeans.fit_predict(Cp_t)
+        inercias.append(kmeans.inertia_)
+        sil_scores.append(silhouette_score(Cp_t, labels))
+
+    # Plot del método del codo
+    plt.figure(figsize=(12, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(Ks, inercias, 'bo-')
+    plt.xlabel('Número de Clusters (k)')
+    plt.ylabel('Inercia')
+    plt.title('Método del Codo')
+
+    # Plot del coeficiente de silhouette
+    plt.subplot(1, 2, 2)
+    plt.plot(Ks, sil_scores, 'go-')
+    plt.xlabel('Número de Clusters (k)')
+    plt.ylabel('Silhouette Score')
+    plt.title('Coeficiente de Silhouette')
+
+    plt.tight_layout()
+    plt.show()
+
+    k_silhouette = Ks[np.argmax(sil_scores)]
+    print(f"🔍 Mejor k según Silhouette Score: {k_silhouette}")
+
+    return k_silhouette
+
+def plotCp(Cp_real, Cp_inter, text):
+    plt.figure()
+    plt.scatter(Cp_real, Cp_inter, color='blue', label='Cp interpolado vs Cp real')
+    plt.plot([min(Cp_real), max(Cp_real)], [min(Cp_real), max(Cp_real)], color='red', linestyle='--', label='Interpolación perfecta (y = x)')
+    plt.xlabel('Cp real')
+    plt.ylabel('Cp interpolado')
+    plt.title('Comparación de Cp real vs Cp interpolado ' + text)
+    plt.legend()
+    plt.grid(True)
+
+
+    
+data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\BBDD 3D\\FOM_Skin_Data"
+rank = 50
+epsilon = 10
+kernel = 'gaussian'
+AlphaRange = [0, 3.5]
+MachRange = [0.6, 0.85]
+S=0.7532
+n_clusters = 3
+T1 = np.array([[0.15232, 0.60535]])
+Cl_1 = 0.01168
+T2 = np.array([[1.0615, 0.62832]])
+Cl_2 = 0.07651
+T3 = np.array([[2.15525, 0.73018]])
+Cl_3 = 0.16625
+T4 = np.array([[2.89353, 0.79088]])
+Cl_4 = 0.23897
+T5 = np.array([[3.44724, 0.80288]])
+Cl_5 = 0.29121
+
+Alpha, Mach, Cp, xpos, ypos, zpos = load_data(data_path)
     
 
-    #Creation of an array with all the test samples
-    TestSamples = np.stack((T1.flatten(), T2.flatten(), T3.flatten(), T4.flatten(), T5.flatten()))
-
-    #A range of alpha and Mach has been established. Here we are going to loop through every value of alpha and mach to eliminate the values that are outside the range defined
-    i = 0
-    removeMatrix = np.array([])
-    while i < len(Alpha):
-        #Testing if alpha is within the range
-        if AlphaRange[0] < Alpha[i] < AlphaRange[1]:
-            #Testing if Mach is within the range
-            if MachRange[0] < Mach[i] < MachRange[1]:
-                kk = 0
-            else:
-                #If Mach is not in the range we add this value to the remove Matrix
-                removeMatrix = np.append(removeMatrix, i)
+#Creation of an array with all the test samples
+TestSamples = np.stack((T1.flatten(), T2.flatten(), T3.flatten(), T4.flatten(), T5.flatten()))
+#A range of alpha and Mach has been established. Here we are going to loop through every value of alpha and mach to eliminate the values that are outside the range defined
+i = 0
+removeMatrix = np.array([])
+while i < len(Alpha):
+    #Testing if alpha is within the range
+    if AlphaRange[0] < Alpha[i] < AlphaRange[1]:
+        #Testing if Mach is within the range
+        if MachRange[0] < Mach[i] < MachRange[1]:
+            kk = 0
         else:
-            #If Alpha is not in the range we add this value to the remove matrix
+            #If Mach is not in the range we add this value to the remove Matrix
             removeMatrix = np.append(removeMatrix, i)
+    else:
+        #If Alpha is not in the range we add this value to the remove matrix
+        removeMatrix = np.append(removeMatrix, i)
         
-        y = 0
+    y = 0
         #We remove the test samples from the original alpha and Mach matrices
-        while y < TestSamples.shape[0]:
-            if Alpha[i] == TestSamples[y, 0] and Mach[i] == TestSamples[y, 1]:
-                removeMatrix = np.append(removeMatrix, i)
-            y+=1
+    while y < TestSamples.shape[0]:
+        if Alpha[i] == TestSamples[y, 0] and Mach[i] == TestSamples[y, 1]:
+            removeMatrix = np.append(removeMatrix, i)
+        y+=1
 
-        i+=1
+    i+=1
 
     #Elimination of the values outside the range
-    removeMatrix = removeMatrix.astype(int)
+removeMatrix = removeMatrix.astype(int)
 
-    Alpha = np.delete(Alpha, removeMatrix, axis=0)
-    Mach = np.delete(Mach, removeMatrix, axis=0)
-    Cp = np.delete(Cp, removeMatrix, axis=1)
+Alpha = np.delete(Alpha, removeMatrix, axis=0)
+Mach = np.delete(Mach, removeMatrix, axis=0)
+Cp = np.delete(Cp, removeMatrix, axis=1)
     
-    #Creation of an array will all the Alfa and Mach values.
-    parameters = np.column_stack((Alpha, Mach))
+#Creation of an array will all the Alfa and Mach values.
+parameters = np.column_stack((Alpha, Mach))
 
-    parameters = np.round(parameters, 5)
-    Cp_1 = find_index(parameters, float(T1[0,0]), float(T1[0,1]), Cp)
-    Cp_2 = find_index(parameters, float(T2[0,0]), float(T2[0,1]), Cp)
-    Cp_3= find_index(parameters, float(T3[0,0]), float(T3[0,1]), Cp)
-    Cp_4 = find_index(parameters, float(T4[0,0]), float(T4[0,1]), Cp)
-    Cp_5 = find_index(parameters, float(T5[0,0]), float(T5[0,1]), Cp)
-    #Number of parameters that will be used for the training. We are going to use an 80% of all the parameters.
-    trainCount = int(np.floor(parameters.shape[0] * 0.9))
-    
-    if parameters.shape[0] > trainCount:
-        #Thanks to this seed, every time the code is executed, the same values will be chosen in this 80%
-        np.random.seed(42)
-        #Selection of the indices corresponding to this 80%
-        selected_indices = np.random.choice(parameters.shape[0], trainCount, replace=False)
-        #We reduce the matrix to the 80%
-        parameters = reduce_data(parameters, selected_indices, 0)
-        Cp = reduce_data(Cp, selected_indices, 1)
+parameters = np.round(parameters, 5)
+Cp_1 = find_index(parameters, float(T1[0,0]), float(T1[0,1]), Cp)
+Cp_2 = find_index(parameters, float(T2[0,0]), float(T2[0,1]), Cp)
+Cp_3= find_index(parameters, float(T3[0,0]), float(T3[0,1]), Cp)
+Cp_4 = find_index(parameters, float(T4[0,0]), float(T4[0,1]), Cp)
+Cp_5 = find_index(parameters, float(T5[0,0]), float(T5[0,1]), Cp)
+#Number of parameters that will be used for the training. We are going to use an 80% of all the parameters.
+trainCount = int(np.floor(parameters.shape[0] * 0.9))
 
-    print("Samples:", parameters.shape[0])
-    
-    #We save in a database the input parameters (Alpha and Mach) and the output values(Cp)
-    db = Database(parameters, Cp.T)
-    #We are performing the SVD with the rank established
-    pod = POD('svd', rank = rank)
-    rbf = RBF(kernel = kernel, epsilon = epsilon)  # radial basis function interpolator instance
+if parameters.shape[0] > trainCount:
+    #Thanks to this seed, every time the code is executed, the same values will be chosen in this 80%
+    np.random.seed(42)
+    #Selection of the indices corresponding to this 80%
+    selected_indices = np.random.choice(parameters.shape[0], trainCount, replace=False)
+    #We reduce the matrix to the 80%
+    parameters = reduce_data(parameters, selected_indices, 0)
+    Cp = reduce_data(Cp, selected_indices, 1)
 
-    #Combination of all the model
-    rom = ROM(db, pod, rbf)
-    #It adjust the data
-    rom.fit()
-    
-    #Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.
-    print("------ TEST 1 ------")
-    start_time1 = time.perf_counter()
-    reconstructed_cp = predict(T1, rom)
-    end_time1 = time.perf_counter()
-    elapsed_time1 = end_time1 - start_time1
-    print("Tiempo de ejecucion: " + str(elapsed_time1))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_1, T1)
-    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0,0], T1[0,1])
-    plot_cp_2d(xpos, ypos, reconstructed_cp, T1[0,0], T1[0,1])
-    compute_Cp_error(Cp_1, reconstructed_cp)
-    Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
-    computeError(Cl_1, Cl)
-    
-    # plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0, 0], T1[0, 1]) 
-    
-    print("------ TEST 2 ------")
-    start_time2 = time.perf_counter()
-    reconstructed_cp = predict(T2, rom)
-    end_time2 = time.perf_counter()
-    elapsed_time2 = end_time2 - start_time2
-    print("Tiempo de ejecucion: " + str(elapsed_time2))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
 
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_2, T2)
-    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T2[0,0], T2[0,1])
-    plot_cp_2d(xpos, ypos, reconstructed_cp, T2[0,0], T2[0,1])
-    compute_Cp_error(Cp_2, reconstructed_cp)
-    Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
-    computeError(Cl_2, Cl)
-    
-    
-    print("------ TEST 3 ------")
-    start_time3 = time.perf_counter()
-    reconstructed_cp = predict(T3, rom)
-    end_time3 = time.perf_counter()
-    elapsed_time3 = end_time3 - start_time3
-    print("Tiempo de ejecucion: " + str(elapsed_time3))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
+print("Samples:", parameters.shape[0])
 
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_3, T3)
-    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T3[0,0], T3[0,1])
-    plot_cp_2d(xpos, ypos, reconstructed_cp, T3[0,0], T3[0,1])
-    compute_Cp_error(Cp_3, reconstructed_cp)
-    Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
-    computeError(Cl_3, Cl)
-    
-    
-    
-    print("------ TEST 4 ------")
-    start_time4 = time.perf_counter()
-    reconstructed_cp = predict(T4, rom)
-    end_time4 = time.perf_counter()
-    elapsed_time4 = end_time4 - start_time4
-    print("Tiempo de ejecucion: " + str(elapsed_time4))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
+X_total = np.hstack([Cp.T, parameters])
+scaler = StandardScaler()
+X_normalizado = scaler.fit_transform(X_total)
 
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_4, T4)
-    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T4[0,0], T4[0,1])
-    plot_cp_2d(xpos, ypos, reconstructed_cp, T4[0,0], T4[0,1])
-    compute_Cp_error(Cp_4, reconstructed_cp)
-    Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
-    computeError(Cl_4, Cl)    
+kmeans = KMeans(n_clusters, random_state=0)
+labels = kmeans.fit_predict(X_normalizado)
+
+plt.figure(figsize=(8, 6))
+for i in range(n_clusters):
+    idx = labels == i
+    plt.scatter(parameters[idx, 0], parameters[idx, 1], label=f'Cluster {i}')
+        
+plt.xlabel('Alpha (°)')
+plt.ylabel('Mach')
+plt.title('K-Means Clustering de Simulaciones')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+
+scaler_inputs = StandardScaler()
+X_inputs = parameters  # shape (n_samples, 2)
+X_inputs_normalized = scaler_inputs.fit_transform(X_inputs)
+
+clas = train_cluster_classifier(X_inputs_normalized, labels, n_neighbors=1)
+rom_clusters = train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, labels)
+    
+#Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.
+print("------ TEST 1 ------")
+start_time1 = time.perf_counter()
+reconstructed_cp = predict_kmeans(T1, Cl_1, xpos, ypos, kmeans, rom_clusters, clas)
+end_time1 = time.perf_counter()
+elapsed_time1 = end_time1 - start_time1
+print("Tiempo de ejecucion: " + str(elapsed_time1))
+#We return the interpolated values to the original column space
+coords = np.column_stack((xpos, ypos, zpos))
+#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_1, T1)
+plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0,0], T1[0,1])
+# plot_cp_2d(xpos, ypos, reconstructed_cp, T1[0,0], T1[0,1])
+#plotCp(Cp_1, reconstructed_cp, "Alfa = " + str(T1[0,0]) + " Mach = " + str(T1[0,1]))
+compute_Cp_error(Cp_1, reconstructed_cp)
+Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
+computeError(Cl_1, Cl)
+    
+# plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0, 0], T1[0, 1]) 
+
+print("------ TEST 2 ------")
+start_time2 = time.perf_counter()
+reconstructed_cp = predict_kmeans(T2, Cl_2, xpos, ypos, kmeans, rom_clusters, clas)
+end_time2 = time.perf_counter()
+elapsed_time2 = end_time2 - start_time2
+print("Tiempo de ejecucion: " + str(elapsed_time2))
+#We return the interpolated values to the original column space
+coords = np.column_stack((xpos, ypos, zpos))
+
+#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_2, T2)
+plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T2[0,0], T2[0,1])
+# plot_cp_2d(xpos, ypos, reconstructed_cp, T2[0,0], T2[0,1])
+#plotCp(Cp_2, reconstructed_cp, "Alfa = " + str(T2[0,0]) + " Mach = " + str(T2[0,1]))
+compute_Cp_error(Cp_2, reconstructed_cp)
+Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
+computeError(Cl_2, Cl)
     
     
-    print("------ TEST 5 ------")
-    start_time5 = time.perf_counter()
-    reconstructed_cp = predict(T5, rom)
-    end_time5 = time.perf_counter()
-    elapsed_time5 = end_time5 - start_time5
-    print("Tiempo de ejecucion: " + str(elapsed_time5))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
+print("------ TEST 3 ------")
+start_time3 = time.perf_counter()
+reconstructed_cp = predict_kmeans(T3, Cl_3, xpos, ypos, kmeans, rom_clusters, clas)
+end_time3 = time.perf_counter()
+elapsed_time3 = end_time3 - start_time3
+print("Tiempo de ejecucion: " + str(elapsed_time3))
+#We return the interpolated values to the original column space
+coords = np.column_stack((xpos, ypos, zpos))
+#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_3, T3)
+plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T3[0,0], T3[0,1])
+# plot_cp_2d(xpos, ypos, reconstructed_cp, T3[0,0], T3[0,1])
+#plotCp(Cp_3, reconstructed_cp, "Alfa = " + str(T3[0,0]) + " Mach = " + str(T3[0,1]))
+compute_Cp_error(Cp_3, reconstructed_cp)
+Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
+computeError(Cl_3, Cl)
     
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_5, T5)
-    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T5[0,0], T5[0,1])
-    plot_cp_2d(xpos, ypos, reconstructed_cp, T5[0,0], T5[0,1])
-    compute_Cp_error(Cp_5, reconstructed_cp)
-    Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
-    computeError(Cl_5, Cl)   
+    
+    
+print("------ TEST 4 ------")
+start_time4 = time.perf_counter()
+reconstructed_cp = predict_kmeans(T4, Cl_4, xpos, ypos, kmeans, rom_clusters, clas)
+end_time4 = time.perf_counter()
+elapsed_time4 = end_time4 - start_time4
+print("Tiempo de ejecucion: " + str(elapsed_time4))
+#We return the interpolated values to the original column space
+coords = np.column_stack((xpos, ypos, zpos))
+
+#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_4, T4)
+plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T4[0,0], T4[0,1])
+# plot_cp_2d(xpos, ypos, reconstructed_cp, T4[0,0], T4[0,1])
+#plotCp(Cp_4, reconstructed_cp, "Alfa = " + str(T4[0,0]) + " Mach = " + str(T4[0,1]))
+compute_Cp_error(Cp_4, reconstructed_cp)
+Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
+computeError(Cl_4, Cl)    
+    
+    
+print("------ TEST 5 ------")
+start_time5 = time.perf_counter()
+reconstructed_cp = predict_kmeans(T5, Cl_5, xpos, ypos, kmeans, rom_clusters, clas)
+end_time5 = time.perf_counter()
+elapsed_time5 = end_time5 - start_time5
+print("Tiempo de ejecucion: " + str(elapsed_time5))
+#We return the interpolated values to the original column space
+coords = np.column_stack((xpos, ypos, zpos))
+    
+#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_5, T5)
+plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T5[0,0], T5[0,1])
+# plot_cp_2d(xpos, ypos, reconstructed_cp, T5[0,0], T5[0,1])
+#plotCp(Cp_5, reconstructed_cp, "Alfa = " + str(T5[0,0]) + " Mach = " + str(T5[0,1]))
+compute_Cp_error(Cp_5, reconstructed_cp)
+Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
+computeError(Cl_5, Cl)   
     
 
-if __name__ == '__main__':
-    main()
-    plt.show()
+plt.show()

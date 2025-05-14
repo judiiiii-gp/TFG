@@ -299,7 +299,7 @@ def main():
     data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Exemple TFG\\CODE\\Naca0012_database_mesh_1\\FOM_Skin_Data"
 
     epsilon = 95
-    kernel = 'linear'
+    kernel = 'gaussian'
     AlphaRange = [0, 2]
     MachRange = [0.6, 0.75]
     

@@ -270,10 +270,10 @@ def predict_kmeans(test_sample, OGACL, xpos, ypos, kmeans, rom_clusters, clas):
 trainCount = int(np.floor(2000 * 0.8))
 epsilon = 95
 rank = 50
-kernel = 'linear'
+kernel = 'gaussian'
 AlphaRange = [0, 2]
 MachRange = [0.6, 0.75]
-n_clusters = 5
+n_clusters = 3
 
 #Values that will be used for the testing
 T1 = np.array([[0.21619, 0.61428]])
@@ -337,6 +337,7 @@ print("Samples: ", len(Alpha))
 
 #Creation of an array will all the Alfa and Mach values.
 parameters = np.column_stack((Alpha, Mach))
+print(parameters.shape, Cp.shape)
 X_total = np.hstack([Cp.T, parameters])
 scaler = StandardScaler()
 X_normalizado = scaler.fit_transform(X_total)
