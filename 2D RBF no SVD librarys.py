@@ -150,11 +150,15 @@ def computeError(ACL, OGACL):
     return np.array([[CL_abs_error, CL_rel_error], [AC_abs_error, AC_rel_error]])
 
 #Function that performs the interpolation
-def predict(ACL, OGACL):
+def predict(ACL):
 
     newCP = rom.predict(ACL).snapshots_matrix # interpolated values
     newCP = newCP.T
-    print(newCP.shape)
+    
+
+    return newCP
+
+def calculations(newCP, ACL, OGACL, xpos, ypos):
     #We load the file containing the Cp values from the simulation of the corresponding alfa and mach
     name = 'C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\' + f"Cp_Alfa_{ACL[0]}_Mach_{ACL[1]}.txt"
     Cp_real = read_filename(name)
@@ -173,9 +177,7 @@ def predict(ACL, OGACL):
     print("OGCL = ", OGACL[0], "OGAC = ", OGACL[1])
 
     computeError([Cl, AC], OGACL)
-
-    return
-
+    
 # Function to read a file with the Cp values from the simulation
 def read_filename(filename):
     try:
@@ -268,6 +270,8 @@ kernel = 'gaussian'
 AlphaRange = [0, 2]
 MachRange = [0.6, 0.75]
 
+V1 = [1, 0.72]
+V1OG = [0.19323, 0.24097]
 #Values that will be used for the testing
 T1 = [0.21619, 0.61428]
 T1OG = [0.03294, 0.25495]
@@ -290,7 +294,7 @@ Alpha = truncate(Alpha)
 Mach = truncate(Mach)
 
 #Creation of an array with all the test samples
-TestSamples = np.stack((T1, T2, T3, T4, T5))
+TestSamples = np.stack((V1, T1, T2, T3, T4, T5))
 
 #A range of alpha and Mach has been established. Here we are going to loop through every value of alpha and mach to eliminate the values that are outside the range defined
 i = 0
@@ -351,36 +355,49 @@ rom = ROM(db, pod, rbf)
 rom.fit()
 
 #Prediction of the Cp with the testing samples
+print("------------VALIDATION--------------")
+VPT1 = predict(V1)
+t = "New: A = " + str(V1[0]) + " M = " + str(V1[1])
+Cl = compute_CL(VPT1, xpos, ypos, True, t)
+AC = compute_AC(VPT1, xpos, ypos, False, t)
+Cl = truncate(Cl)
+AC = truncate(AC)
+print(" CL  = ", Cl, " AC  = ", AC)
 print("--------------T1--------------")
 start_time1 = time.perf_counter()
-CPT1 = predict(T1, T1OG)
+CPT1 = predict(T1)
 end_time1 = time.perf_counter()
 elapsed_time1 = end_time1 - start_time1
 print("Tiempo de ejecucion: " + str(elapsed_time1))
+calculations(CPT1, T1, T1OG, xpos, ypos)
 print("--------------T2--------------")
 start_time2 = time.perf_counter()
-CPT2 = predict(T2, T2OG)
+CPT2 = predict(T2)
 end_time2 = time.perf_counter()
 elapsed_time2 = end_time2 - start_time2
 print("Tiempo de ejecucion: " + str(elapsed_time2))
+calculations(CPT2, T2, T2OG, xpos, ypos)
 print("--------------T3--------------")
 start_time3 = time.perf_counter()
-CPT3 = predict(T3, T3OG)
+CPT3 = predict(T3)
 end_time3 = time.perf_counter()
 elapsed_time3 = end_time3 - start_time3
 print("Tiempo de ejecucion: " + str(elapsed_time3))
+calculations(CPT3, T3, T3OG, xpos, ypos)
 print("--------------T4--------------")
 start_time4 = time.perf_counter()
-CPT4 = predict(T4, T4OG)
+CPT4 = predict(T4)
 end_time4 = time.perf_counter()
 elapsed_time4 = end_time4 - start_time4
 print("Tiempo de ejecucion: " + str(elapsed_time4))
+calculations(CPT4, T4, T4OG, xpos, ypos)
 print("--------------T5--------------")
 start_time5 = time.perf_counter()
-CPT5 = predict(T5, T5OG)
+CPT5 = predict(T5)
 end_time5 = time.perf_counter()
 elapsed_time5 = end_time5 - start_time5
 print("Tiempo de ejecucion: " + str(elapsed_time5))
+calculations(CPT5, T5, T5OG, xpos, ypos)
 
 
 pp.show()

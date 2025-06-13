@@ -24,39 +24,11 @@ def truncate(arr, decimals=5):
     factor = 10.0 ** decimals
     return np.floor(arr * factor) / factor
 
-# Function to calculate the error in the lift coefficient and in the aerodynamic centre
-def computeError(ACL, OGACL):
-
-    print("-----CL-----")
-
-    newCL = ACL[0]
-    ogCL = OGACL[0]
-
-    #Calculation of the absolute error and truncation of the result
-    CL_abs_error = truncate(np.abs(ogCL - newCL))
-    #Calculation of the relative error and truncation of the result
-    CL_rel_error = truncate((CL_abs_error / ogCL) * 100)
-
-    print(str(CL_abs_error))
-    print(str(CL_rel_error), "%")
-
-    print("-----AC-----")
-
-    newAC = ACL[1]
-    ogAC = OGACL[1]
-
-    #Same calculation as the one made for the lift coefficient
-    AC_abs_error = truncate(np.abs(ogAC - newAC))
-    AC_rel_error = truncate((AC_abs_error / ogAC) * 100)
-
-    print(str(AC_abs_error))
-    print(str(AC_rel_error), "%")
-
-    #We return an array with the error values
-    return np.array([[CL_abs_error, CL_rel_error], [AC_abs_error, AC_rel_error]])
-
+#Function to separate the upper surface values form the lower surface values
 def separate_Cp(xpos, ypos, zpos, Cp):
     i = 0
+    
+    #Definition of the variables where the data will be stored
     x_fom_up = []
     y_fom_up = []
     z_fom_up = []
@@ -65,6 +37,7 @@ def separate_Cp(xpos, ypos, zpos, Cp):
     y_fom_down = []
     z_fom_down = []
     cp_fom_down = []
+    # We loop through all possible values
     while i< len(zpos):
         if (zpos[i]>0):
             x_fom_up.append(xpos[i])
@@ -87,6 +60,7 @@ def separate_Cp(xpos, ypos, zpos, Cp):
     cp_fom_down = np.array(cp_fom_down).squeeze() 
     
     return x_fom_up, y_fom_up, z_fom_up, cp_fom_up, x_fom_down, y_fom_down, z_fom_down, cp_fom_down
+
 #Function to load the simulation data
 def load_data(data_path):
     
@@ -121,7 +95,7 @@ def load_data(data_path):
                 x, y, z, cp = map(float, line.split())
                 #Cp values will be saved as follows. Each column will have the Cp values corresponding to a file.
                 Cp[j, i] = cp 
-                #X and Y are the same for all the simulations, so we only save them in the first iteration
+                #X, Y and Z are the same for all the simulations, so we only save them in the first iteration
                 if i == 0:
                     xpos[j] = x
                     ypos[j] = y
@@ -129,7 +103,7 @@ def load_data(data_path):
 
     return Alpha, Mach, Cp, xpos, ypos, zpos
 
-
+#Function to plot the  Cp distribution around the airfoil in 3D
 def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach):
     fig = plt.figure(figsize=(10, 6))
     ax = fig.add_subplot(111, projection='3d')
@@ -145,7 +119,8 @@ def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach):
     ax.set_ylim(ypos.min(), ypos.max())
     ax.set_zlim([-0.25, 0.25])
     plt.tight_layout()
-    
+
+#Function to plot the pressure distribution in 2D (plane xy)
 def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
 
     plt.rcParams['xtick.direction'] = 'in'
@@ -160,22 +135,16 @@ def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
     xpos = xpos[mask]
     ypos = ypos[mask]
     Cp = Cp[mask]
-    # 1) Triangulamos TODOS los puntos (sin filtrar antes)
+    # Triangulation of all the points
     triang = mtri.Triangulation(xpos, ypos)
 
-    # 2) Enmascaramos triángulos por debajo de y=0 (opcional)
-    # bar_y = np.mean(ypos[triang.triangles], axis=1)
-    # triang.set_mask(bar_y <= 0)
-
-    # 3) Pintamos con shading='gouraud' (interpolación continua)
+    # We paint with shading='gouraud' (continuous interpolation)
     fig, ax = plt.subplots(figsize=(8,8))
     tpc = ax.tripcolor(triang,Cp.squeeze(),norm = norm ,cmap='viridis', edgecolors='none', linewidth = 0.8)
 
-    # opcional: contornos suaves
     levels = np.linspace(Cp.min(), Cp.max(), 60)
     ax.tricontourf(triang, Cp.squeeze(), levels=levels, cmap='viridis', alpha=0.0)
 
-    # colorbar y estética
     cbar = fig.colorbar(tpc, ax=ax, label='PRESSURE COEFFICIENT')
     math_label_fontsize = 14
     cbar.ax.tick_params(labelsize=math_label_fontsize)
@@ -186,11 +155,13 @@ def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
     plt.title(f'Cp distribution (Alpha={Alpha}, Mach={Mach})')
     plt.tight_layout()
 
+#Function to plot the pressure distribution in different airfoil sections (plot in 2D)
 def plot_cp_section(xpos, ypos, zpos, Cp, Cp_real, parameters):
     labels = [90, 65, 20]
 
+    #Separation of the variables
     x_fom_up, y_fom_up, z_fom_up, cp_fom_up, x_fom_down, y_fom_down, z_fom_down, cp_fom_down = separate_Cp(xpos, ypos, zpos, Cp)
-    x_fom_up_real, y_fom_up_real, z_fom_up_real, cp_fom_up_real, x_fom_down_real, y_fom_down_real, z_fom_down_real, cp_fom_down_real = separate_Cp(xpos, ypos, zpos, Cp_real)
+
     for section in range(3):
         fig = plt.figure(figsize=(4, 3))
         
@@ -209,14 +180,6 @@ def plot_cp_section(xpos, ypos, zpos, Cp, Cp_real, parameters):
         cp_interpolated_fom_inf = griddata((x_fom_down, y_fom_down), cp_fom_down, (x_grid,y_target), method='linear', fill_value=0.25)
         cp_interpolated_fom_full = np.concatenate((cp_interpolated_fom, cp_interpolated_fom_inf[::-1]))
         plt.plot(x_airfoil_normalized_full, -cp_interpolated_fom_full, '-', color='blue', marker = "o", linewidth=1.5, label='Interpolated Cp')
-
-        # cp_interpolated_fom_real = griddata((x_fom_up_real, y_fom_up_real), cp_fom_up_real, (x_grid,y_target), method='linear', fill_value=0.25)
-        # cp_interpolated_fom_inf_real = griddata((x_fom_down_real, y_fom_down_real), cp_fom_down_real, (x_grid,y_target), method='linear', fill_value=0.25)
-        # cp_interpolated_fom_full_real = np.concatenate((cp_interpolated_fom_real, cp_interpolated_fom_inf_real[::-1]))
-        # plt.plot(x_airfoil_normalized_full, -cp_interpolated_fom_full_real, '-', color='green', linewidth=1.5, label='Real Cp')
-        
-        # plt.xlim(-0.1, 1.1)
-        # plt.ylim(-1.0, 1.3)
 
         # Set labels
         math_label_fontsize = 14
@@ -237,63 +200,7 @@ def predict(ACL, rom):
 
     return newCP
 
-def calcular_cl_desde_puntos(coords, Cp, alfa_deg, mach, rho=1.225, T=288.15,gamma=1.4, R=287.05):
-
-
-    # 1) PCA para definir el plano principal del ala
-    mean = coords.mean(axis=0)
-    centered = coords - mean
-    cov = np.cov(centered.T)
-    vals, vecs = np.linalg.eigh(cov)
-    # orden descendente de varianza
-    idx = np.argsort(vals)[::-1]
-    e1, e2 = vecs[:, idx[0]], vecs[:, idx[1]]
-
-    # 2) Proyección 2D
-    pts2d = np.stack([centered.dot(e1), centered.dot(e2)], axis=1)
-
-    # 3a) Triangulación para integración
-    tri = Delaunay(pts2d)
-    tris = tri.simplices
-
-    # 3b) Área de referencia = área del hull en 2D
-    hull = ConvexHull(pts2d)
-    S = hull.volume  # en 2D, volume = área
-
-    # 4) Condiciones de flujo
-    a = np.sqrt(gamma * R * T)
-    V = mach * a
-    q_inf = 0.5 * rho * V**2
-    alfa = np.radians(alfa_deg)
-    lift_dir = np.array([-np.sin(alfa), 0.0, np.cos(alfa)])  # eje z' del ala
-
-    # 5) Integración sobre cada triángulo
-    L_total = 0.0
-    for tri_pts in tris:
-        i0, i1, i2 = tri_pts
-        p0, p1, p2 = coords[i0], coords[i1], coords[i2]
-        cn = np.cross(p1 - p0, p2 - p0)           # 2·área·normal
-        area = 0.5 * np.linalg.norm(cn)           # área del triángulo
-        n_hat = cn / (2 * area)       # normal unitaria
-        
-        if np.dot(n_hat, lift_dir) < 0:
-            n_hat = -n_hat
-            
-        cp_avg = (Cp[i0] + Cp[i1] + Cp[i2]) / 3.0
-        dF = - cp_avg * q_inf * area * n_hat      # fuerza elemental
-        L_total += np.dot(dF, lift_dir)
-
-    # 6) Coeficiente de sustentación
-    Cl = L_total / (q_inf * S)
-    print(f"Ángulo de ataque: {alfa_deg}°  |  Mach: {mach}")
-    print(f"Área ala proyectada (S): {S:.3f} m²")
-    print(f"q_inf: {q_inf:.2f} Pa  |  V: {V:.2f} m/s")
-    print(f"Lift total: {L_total:.2f} N")
-    print(f"CL calculado: {Cl:.4f}")
-    print(f"Cp: min={Cp.min():.3f}, max={Cp.max():.3f}, mean={Cp.mean():.3f}")
-
-    return Cl
-
+#Function to calculate the Cl error
 def computeError(Cl_real, Cl_interp):
 
 
@@ -305,7 +212,7 @@ def computeError(Cl_real, Cl_interp):
     print("Error absoluto: " + str(CL_abs_error))
     print("Error relativo: " + str(CL_rel_error), "%")
 
-
+#Function to find the index of an alfa and Mach combination
 def find_index(arr, alfa, mach, Cp):
     idx = np.where((arr[:, 0] == alfa) & (arr[:, 1] == mach))[0]
     cp_case = Cp[:, idx] 
@@ -332,6 +239,7 @@ def compute_Cp_error(Cp_real, Cp_interp):
     print(f"Error absoluto promedio: {error_abs_prom}")
     return abs_error, rel_error
 
+#Function that integrates the Cp along the airfoil' surface
 def integrate_surface(x, y, z, cp, is_upper):
 
     pts2d = np.vstack((x, y)).T
@@ -339,22 +247,20 @@ def integrate_surface(x, y, z, cp, is_upper):
 
     lift = 0.0
     for tri_idx in tri.simplices:
-        # puntos en 3D
+        # 3D points
         p1 = np.array([x[tri_idx[0]], y[tri_idx[0]], z[tri_idx[0]]])
         p2 = np.array([x[tri_idx[1]], y[tri_idx[1]], z[tri_idx[1]]])
         p3 = np.array([x[tri_idx[2]], y[tri_idx[2]], z[tri_idx[2]]])
 
-        # vector-área (módulo del área en z)
+        # Area-vector (area's module in z)
         dA_vec = np.cross(p2 - p1, p3 - p1) / 2.0
         area = abs(dA_vec[2])
 
         cp_avg = cp[tri_idx].mean()
 
-        # signo según superficie:
-        # - en la cara superior, dA_z > 0 orienta normal hacia +z,
-        #   y la fuerza es -Cp * area
-        # - en la cara inferior, normal apunta hacia -z,
-        #   y la fuerza de sustentación (hacia +z) es +Cp * area
+        # the sign depends on the surface:
+        # in the upper surface, dA_z > 0, its normal is pointed towards +z and the force is -Cp * area
+        # in the upper surface, dA_z < 0, its normal is pointed towards -z and the force is +Cp * area 
         if is_upper:
             lift += -cp_avg * area
         else:
@@ -362,50 +268,54 @@ def integrate_surface(x, y, z, cp, is_upper):
 
     return lift
 
+#Function to compute the lift coefficient
 def compute_cl(x, y, z, cp, S_ref):
 
-    # Separa tuplas (x_up, y_up, z_up, cp_up), (x_low, y_low, z_low, cp_low)
+    # Separation of the upper surface values from the lower surface values
     x_up,  y_up,  z_up,  cp_up, \
     x_low, y_low, z_low, cp_low = separate_Cp(x, y, z, cp)
 
-    # Integral en cada superficie
+    # Integration in each surface
     L_up   = integrate_surface(x_up,  y_up,  z_up,  cp_up, True)
     L_low  = integrate_surface(x_low, y_low, z_low, cp_low, False)
 
-    # Lift neto y CL
+    # Lift and lift coefficient
     L_net  = L_up + L_low
     CL     = L_net / S_ref
     CL = truncate(CL)
     print("Cl = " + str(CL))
     return CL
 
+#Function to train the computer to know to which cluster assign the alpha and Mach combination
 def train_cluster_classifier(features, cluster_labels, n_neighbors=5):
 
-    # Usamos solo (alfa, mach) para clasificación
-    X = features[:, -2:]  # columnas alfa y mach
+    # We only use alpha and Mach in the testing phase
+    X = features[:, -2:]  
     y = cluster_labels
     clf = KNeighborsClassifier(n_neighbors=n_neighbors)
     clf.fit(X, y)
     return clf
 
+#Function to assign the test combination to a cluster
 def assign_cluster(classifier, test_point):
 
     test_point_normalized = scaler_inputs.transform(test_point)
     cluster_label = classifier.predict(test_point_normalized)
     return cluster_label[0]
 
+#Function that calculates the specific weights for each cluster
 def train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, cluster_labels):
 
     rom_clusters = {}
-    # Para cada cluster, extraemos los índices y entrenamos un ROM
+    # For each cluster we get the index and we train a ROM
     for cluster in range(n_clusters):
         indices = np.where(cluster_labels == cluster)[0]
         if len(indices) == 0:
             continue
         params_cluster = parameters[indices, :]
-        Cp_cluster = Cp[:, indices]  # columnas correspondientes
+        Cp_cluster = Cp[:, indices]  
 
-        # Se crea la base de datos y se entrena el modelo ROM para el cluster
+        # Creation of the database and training of the ROM model for the cluster
         db_cluster = Database(params_cluster, Cp_cluster.T)
         pod_cluster = POD('svd', rank=Cp_cluster.shape[1] if Cp_cluster.shape[1] < rank else rank)
         rbf_cluster = RBF(kernel=kernel, epsilon=epsilon)
@@ -415,26 +325,27 @@ def train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, cluste
         print(f"Cluster {cluster}: {len(indices)} muestras.")
     return rom_clusters
 
+#Function that performs the interpolation
 def predict_kmeans(test_sample, OGACL, xpos, ypos, kmeans, rom_clusters, clas):
 
-
+    #Determination of the cluster to which the combination belongs to
     label = assign_cluster(clas, test_sample)
-    # Determinar la etiqueta del cluster para la muestra de prueba
     
     print(f"Test sample {test_sample} asignado al cluster: {label}")
     
-    # Predecir usando el ROM del cluster asignado
+    # Prediction using only the assigned ROM
     rom = rom_clusters[label]
     newCP = rom.predict(np.array(test_sample)).snapshots_matrix  # Cp interpolados
     newCP = newCP.T
     
     return newCP
-    
+
+#Function that finds the optim number of clusters
 def encontrar_k_optimo(Cp_t, k_max=10):
     inercias = []
     sil_scores = []
 
-    Ks = range(2, k_max + 1)  # comenzamos desde 2 clusters
+    Ks = range(2, k_max + 1)  #We start from 2 clusters
 
     for k in Ks:
         kmeans = KMeans(n_clusters=k, random_state=0)
@@ -442,16 +353,7 @@ def encontrar_k_optimo(Cp_t, k_max=10):
         inercias.append(kmeans.inertia_)
         sil_scores.append(silhouette_score(Cp_t, labels))
 
-    # Plot del método del codo
-    plt.figure(figsize=(12, 5))
-
-    plt.subplot(1, 2, 1)
-    plt.plot(Ks, inercias, 'bo-')
-    plt.xlabel('Número de Clusters (k)')
-    plt.ylabel('Inercia')
-    plt.title('Método del Codo')
-
-    # Plot del coeficiente de silhouette
+    # Plot of the silhouette coefficient
     plt.subplot(1, 2, 2)
     plt.plot(Ks, sil_scores, 'go-')
     plt.xlabel('Número de Clusters (k)')
@@ -466,6 +368,7 @@ def encontrar_k_optimo(Cp_t, k_max=10):
 
     return k_silhouette
 
+#Function that plots the comparison between the interpolated Cp and the simulated Cp
 def plotCp(Cp_real, Cp_inter, text):
     plt.figure()
     plt.scatter(Cp_real, Cp_inter, color='blue', label='Cp interpolado vs Cp real')
@@ -476,8 +379,9 @@ def plotCp(Cp_real, Cp_inter, text):
     plt.legend()
     plt.grid(True)
 
+######################################## SCRIPT #############################################
 
-    
+#Load the data and parameter's definition
 data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\BBDD 3D\\FOM_Skin_Data"
 rank = 50
 epsilon = 10
@@ -486,6 +390,8 @@ AlphaRange = [0, 3.5]
 MachRange = [0.6, 0.85]
 S=0.7532
 n_clusters = 3
+
+#Validation and testing combinations
 T1 = np.array([[0.15232, 0.60535]])
 Cl_1 = 0.01168
 T2 = np.array([[1.0615, 0.62832]])
@@ -558,13 +464,17 @@ if parameters.shape[0] > trainCount:
 
 print("Samples:", parameters.shape[0])
 
+#Combination of the parameter's array and the Cp array
 X_total = np.hstack([Cp.T, parameters])
 scaler = StandardScaler()
+#Normalization
 X_normalizado = scaler.fit_transform(X_total)
 
+#Creation of the clusters and assignment of the data into their clusters
 kmeans = KMeans(n_clusters, random_state=0)
 labels = kmeans.fit_predict(X_normalizado)
 
+#Plot of the data assigned into its corresponding cluster
 plt.figure(figsize=(8, 6))
 for i in range(n_clusters):
     idx = labels == i
@@ -578,9 +488,11 @@ plt.grid(True)
 plt.tight_layout()
 
 scaler_inputs = StandardScaler()
-X_inputs = parameters  # shape (n_samples, 2)
+X_inputs = parameters 
+#Normalization of the parameters alone
 X_inputs_normalized = scaler_inputs.fit_transform(X_inputs)
 
+#Training of the clusters 
 clas = train_cluster_classifier(X_inputs_normalized, labels, n_neighbors=1)
 rom_clusters = train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, labels)
     
@@ -591,17 +503,14 @@ reconstructed_cp = predict_kmeans(T1, Cl_1, xpos, ypos, kmeans, rom_clusters, cl
 end_time1 = time.perf_counter()
 elapsed_time1 = end_time1 - start_time1
 print("Tiempo de ejecucion: " + str(elapsed_time1))
-#We return the interpolated values to the original column space
-coords = np.column_stack((xpos, ypos, zpos))
-#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_1, T1)
+plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_1, T1)
 plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0,0], T1[0,1])
-# plot_cp_2d(xpos, ypos, reconstructed_cp, T1[0,0], T1[0,1])
-#plotCp(Cp_1, reconstructed_cp, "Alfa = " + str(T1[0,0]) + " Mach = " + str(T1[0,1]))
+plot_cp_2d(xpos, ypos, reconstructed_cp, T1[0,0], T1[0,1])
+plotCp(Cp_1, reconstructed_cp, "Alfa = " + str(T1[0,0]) + " Mach = " + str(T1[0,1]))
 compute_Cp_error(Cp_1, reconstructed_cp)
 Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
 computeError(Cl_1, Cl)
     
-# plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0, 0], T1[0, 1]) 
 
 print("------ TEST 2 ------")
 start_time2 = time.perf_counter()
@@ -610,12 +519,10 @@ end_time2 = time.perf_counter()
 elapsed_time2 = end_time2 - start_time2
 print("Tiempo de ejecucion: " + str(elapsed_time2))
 #We return the interpolated values to the original column space
-coords = np.column_stack((xpos, ypos, zpos))
-
-#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_2, T2)
+plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_2, T2)
 plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T2[0,0], T2[0,1])
-# plot_cp_2d(xpos, ypos, reconstructed_cp, T2[0,0], T2[0,1])
-#plotCp(Cp_2, reconstructed_cp, "Alfa = " + str(T2[0,0]) + " Mach = " + str(T2[0,1]))
+plot_cp_2d(xpos, ypos, reconstructed_cp, T2[0,0], T2[0,1])
+plotCp(Cp_2, reconstructed_cp, "Alfa = " + str(T2[0,0]) + " Mach = " + str(T2[0,1]))
 compute_Cp_error(Cp_2, reconstructed_cp)
 Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
 computeError(Cl_2, Cl)
@@ -628,15 +535,13 @@ end_time3 = time.perf_counter()
 elapsed_time3 = end_time3 - start_time3
 print("Tiempo de ejecucion: " + str(elapsed_time3))
 #We return the interpolated values to the original column space
-coords = np.column_stack((xpos, ypos, zpos))
-#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_3, T3)
+plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_3, T3)
 plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T3[0,0], T3[0,1])
-# plot_cp_2d(xpos, ypos, reconstructed_cp, T3[0,0], T3[0,1])
-#plotCp(Cp_3, reconstructed_cp, "Alfa = " + str(T3[0,0]) + " Mach = " + str(T3[0,1]))
+plot_cp_2d(xpos, ypos, reconstructed_cp, T3[0,0], T3[0,1])
+plotCp(Cp_3, reconstructed_cp, "Alfa = " + str(T3[0,0]) + " Mach = " + str(T3[0,1]))
 compute_Cp_error(Cp_3, reconstructed_cp)
 Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
 computeError(Cl_3, Cl)
-    
     
     
 print("------ TEST 4 ------")
@@ -646,12 +551,10 @@ end_time4 = time.perf_counter()
 elapsed_time4 = end_time4 - start_time4
 print("Tiempo de ejecucion: " + str(elapsed_time4))
 #We return the interpolated values to the original column space
-coords = np.column_stack((xpos, ypos, zpos))
-
-#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_4, T4)
+plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_4, T4)
 plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T4[0,0], T4[0,1])
-# plot_cp_2d(xpos, ypos, reconstructed_cp, T4[0,0], T4[0,1])
-#plotCp(Cp_4, reconstructed_cp, "Alfa = " + str(T4[0,0]) + " Mach = " + str(T4[0,1]))
+plot_cp_2d(xpos, ypos, reconstructed_cp, T4[0,0], T4[0,1])
+plotCp(Cp_4, reconstructed_cp, "Alfa = " + str(T4[0,0]) + " Mach = " + str(T4[0,1]))
 compute_Cp_error(Cp_4, reconstructed_cp)
 Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
 computeError(Cl_4, Cl)    
@@ -664,12 +567,10 @@ end_time5 = time.perf_counter()
 elapsed_time5 = end_time5 - start_time5
 print("Tiempo de ejecucion: " + str(elapsed_time5))
 #We return the interpolated values to the original column space
-coords = np.column_stack((xpos, ypos, zpos))
-    
-#plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_5, T5)
+plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_5, T5)
 plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T5[0,0], T5[0,1])
-# plot_cp_2d(xpos, ypos, reconstructed_cp, T5[0,0], T5[0,1])
-#plotCp(Cp_5, reconstructed_cp, "Alfa = " + str(T5[0,0]) + " Mach = " + str(T5[0,1]))
+plot_cp_2d(xpos, ypos, reconstructed_cp, T5[0,0], T5[0,1])
+plotCp(Cp_5, reconstructed_cp, "Alfa = " + str(T5[0,0]) + " Mach = " + str(T5[0,1]))
 compute_Cp_error(Cp_5, reconstructed_cp)
 Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
 computeError(Cl_5, Cl)   

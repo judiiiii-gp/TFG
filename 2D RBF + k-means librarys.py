@@ -60,6 +60,7 @@ def load_data(data_path):
 
     return Alpha, Mach, Cp, xpos, ypos
 
+#Function to compute the Cl
 def compute_CL(cp, x_c, y_y, show, text):
     CP_lower, CP_upper = separate_Cp(cp, x_c, y_y, show, text)
     CP_lower = CP_lower[CP_lower[:, 0] < 1]
@@ -71,6 +72,7 @@ def compute_CL(cp, x_c, y_y, show, text):
     lift = LOWER - UPPER
     return lift
 
+#Function to compute the AC
 def compute_AC(cp, x_c, y_y, show, text):
     CP_lower, CP_upper = separate_Cp(cp, x_c, y_y, show, text)
     CP_lower = CP_lower[CP_lower[:, 0] < 1]
@@ -86,6 +88,7 @@ def compute_AC(cp, x_c, y_y, show, text):
     x_ac = CM_le / lift
     return x_ac
 
+#Function that separates the upper surface values from the lower surface values
 def separate_Cp(cp1, x1, y1, show, text):
     CPlower, xlower, CPupper, xupper = [], [], [], []
     i = 0
@@ -117,6 +120,7 @@ def separate_Cp(cp1, x1, y1, show, text):
     upper_array = np.column_stack((xupper, CPupper))
     return lower_array, upper_array
 
+#Function that computes the aerodynamic parameter's errors
 def computeError(ACL, OGACL):
     print("-----CL-----")
     newCL = ACL[0]
@@ -134,6 +138,7 @@ def computeError(ACL, OGACL):
     print(str(AC_rel_error), "%")
     return np.array([[CL_abs_error, CL_rel_error], [AC_abs_error, AC_rel_error]])
 
+#Function to read a file
 def read_filename(filename):
     try:
         Cp_values = np.loadtxt(filename, delimiter=";")
@@ -141,7 +146,8 @@ def read_filename(filename):
     except Exception as e:
         print(f"Error al leer el fichero {filename} : {e}")
         return None
-    
+
+#Gunction to calculate the interpolation error
 def compute_Cp_error(Cp_real, Cp_interp):
     abs_error = np.abs(Cp_real - Cp_interp)
     rel_error = (abs_error / np.abs(Cp_real)) * 100
@@ -157,6 +163,7 @@ def compute_Cp_error(Cp_real, Cp_interp):
     print(f"Error absoluto promedio: {error_abs_prom}")
     return abs_error, rel_error
 
+#Function to compare the simulated Cp with the interpolated Cp by plotting them
 def plot_cp(Cp_real, Cp_interpolado, text):
     pp.figure()
     pp.scatter(Cp_real, Cp_interpolado, color='blue', label='Cp interpolado vs Cp real')
@@ -167,33 +174,36 @@ def plot_cp(Cp_real, Cp_interpolado, text):
     pp.legend()
     pp.grid(True)
 
+#Function to train the clusters to know where to assign the testing combination
 def train_cluster_classifier(features, cluster_labels, n_neighbors=5):
 
-    # Usamos solo (alfa, mach) para clasificación
-    X = features[:, -2:]  # columnas alfa y mach
+    # In testing we only use alpha and Mach
+    X = features[:, -2:] 
     y = cluster_labels
     clf = KNeighborsClassifier(n_neighbors=n_neighbors)
     clf.fit(X, y)
     return clf
 
+#Function that assigns the testing combination into its corresponding cluster
 def assign_cluster(classifier, test_point):
 
     test_point_normalized = scaler_inputs.transform(test_point)
     cluster_label = classifier.predict(test_point_normalized)
     return cluster_label[0]
 
+#Function that calculates the specific weights for each cluster
 def train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, cluster_labels):
 
     rom_clusters = {}
-    # Para cada cluster, extraemos los índices y entrenamos un ROM
+    # For each cluster we get the index and we train a ROM
     for cluster in range(n_clusters):
         indices = np.where(cluster_labels == cluster)[0]
         if len(indices) == 0:
             continue
         params_cluster = parameters[indices, :]
-        Cp_cluster = Cp[:, indices]  # columnas correspondientes
+        Cp_cluster = Cp[:, indices]  
 
-        # Se crea la base de datos y se entrena el modelo ROM para el cluster
+        # Creation of the database and training of the ROM model for the cluster
         db_cluster = Database(params_cluster, Cp_cluster.T)
         pod_cluster = POD('svd', rank=Cp_cluster.shape[1] if Cp_cluster.shape[1] < rank else rank)
         rbf_cluster = RBF(kernel=kernel, epsilon=epsilon)
@@ -203,20 +213,20 @@ def train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, cluste
         print(f"Cluster {cluster}: {len(indices)} muestras.")
     return rom_clusters
 
+#Function that performs the interpolation
 def predict_kmeans(test_sample, OGACL, xpos, ypos, kmeans, rom_clusters, clas):
 
-
-    label = assign_cluster(clas, test_sample)
-    # Determinar la etiqueta del cluster para la muestra de prueba
+    #Determination of the cluster to which the combination belongs to
+    label = assign_cluster(clas, test_sample) 
     
     print(f"Test sample {test_sample} asignado al cluster: {label}")
     
-    # Predecir usando el ROM del cluster asignado
+  # Prediction using only the assigned ROM
     rom = rom_clusters[label]
     newCP = rom.predict(np.array(test_sample)).snapshots_matrix  # Cp interpolados
     newCP = newCP.T
     
-    # Cargar datos reales para comparar
+    #Load the real data to compare the results
     name = 'C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Code\\' + f"Cp_Alfa_{test_sample[0, 0]}_Mach_{test_sample[0, 1]}.txt"
     Cp_real = read_filename(name)
     abs_error, rel_error = compute_Cp_error(Cp_real, newCP)
@@ -231,42 +241,38 @@ def predict_kmeans(test_sample, OGACL, xpos, ypos, kmeans, rom_clusters, clas):
     print("OGCL = ", OGACL[0], "OGAC = ", OGACL[1])
     computeError([Cl, AC], OGACL)
 
-# def encontrar_k_optimo(Cp_t, k_max=10):
-#     inercias = []
-#     sil_scores = []
+#Function that finds the optim number of clusters
+def encontrar_k_optimo(Cp_t, k_max=10):
+    inercias = []
+    sil_scores = []
 
-#     Ks = range(2, k_max + 1)  # comenzamos desde 2 clusters
+    Ks = range(2, k_max + 1)  #We start from 2 clusters
 
-#     for k in Ks:
-#         kmeans = KMeans(n_clusters=k, random_state=0)
-#         labels = kmeans.fit_predict(Cp_t)
-#         inercias.append(kmeans.inertia_)
-#         sil_scores.append(silhouette_score(Cp_t, labels))
+    for k in Ks:
+        kmeans = KMeans(n_clusters=k, random_state=0)
+        labels = kmeans.fit_predict(Cp_t)
+        inercias.append(kmeans.inertia_)
+        sil_scores.append(silhouette_score(Cp_t, labels))
 
-#     # Plot del método del codo
-#     pp.figure(figsize=(12, 5))
+    # Plot of the silhouette coefficient
+    pp.subplot(1, 2, 2)
+    pp.plot(Ks, sil_scores, 'go-')
+    pp.xlabel('Número de Clusters (k)')
+    pp.ylabel('Silhouette Score')
+    pp.title('Coeficiente de Silhouette')
 
-#     pp.subplot(1, 2, 1)
-#     pp.plot(Ks, inercias, 'bo-')
-#     pp.xlabel('Número de Clusters (k)')
-#     pp.ylabel('Inercia')
-#     pp.title('Método del Codo')
+    pp.tight_layout()
+    pp.show()
 
-#     # Plot del coeficiente de silhouette
-#     pp.subplot(1, 2, 2)
-#     pp.plot(Ks, sil_scores, 'go-')
-#     pp.xlabel('Número de Clusters (k)')
-#     pp.ylabel('Silhouette Score')
-#     pp.title('Coeficiente de Silhouette')
+    k_silhouette = Ks[np.argmax(sil_scores)]
+    print(f"🔍 Mejor k según Silhouette Score: {k_silhouette}")
 
-#     pp.tight_layout()
-#     pp.show()
+    return k_silhouette
 
-#     k_silhouette = Ks[np.argmax(sil_scores)]
-#     print(f"🔍 Mejor k según Silhouette Score: {k_silhouette}")
 
-#     return k_silhouette
+######################################## SCRIPT #############################################
 
+#Load the data and parameter's definition
 trainCount = int(np.floor(2000 * 0.8))
 epsilon = 95
 rank = 50
@@ -337,14 +343,17 @@ print("Samples: ", len(Alpha))
 
 #Creation of an array will all the Alfa and Mach values.
 parameters = np.column_stack((Alpha, Mach))
-print(parameters.shape, Cp.shape)
+#Combination of the parameter's array and the Cp array
 X_total = np.hstack([Cp.T, parameters])
 scaler = StandardScaler()
+#Normalization
 X_normalizado = scaler.fit_transform(X_total)
 
-
+#Creation of the clusters and assignment of the data into their clusters
 kmeans = KMeans(n_clusters, random_state=0)
 labels = kmeans.fit_predict(X_normalizado)
+
+#Plot of the data assigned into its corresponding cluster
 pp.figure(figsize=(8, 6))
 for i in range(n_clusters):
     idx = labels == i
@@ -358,13 +367,15 @@ pp.grid(True)
 pp.tight_layout()
 
 scaler_inputs = StandardScaler()
-X_inputs = np.column_stack((Alpha, Mach))  # shape (n_samples, 2)
+X_inputs = np.column_stack((Alpha, Mach))  
+#Normalization of the parameters alone
 X_inputs_normalized = scaler_inputs.fit_transform(X_inputs)
 
+#Training of the clusters 
 clas = train_cluster_classifier(X_inputs_normalized, labels, n_neighbors=1)
 rom_clusters = train_rom_clusters(parameters, Cp, n_clusters, epsilon, rank, kernel, labels)
 
-# Predicciones para las muestras de prueba
+# Testing phase
 print("--------------T1--------------")
 predict_kmeans(T1, T1OG, xpos, ypos, kmeans, rom_clusters, clas)
 print("--------------T2--------------")

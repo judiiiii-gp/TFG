@@ -20,39 +20,11 @@ def truncate(arr, decimals=5):
     factor = 10.0 ** decimals
     return np.floor(arr * factor) / factor
 
-# Function to calculate the error in the lift coefficient and in the aerodynamic centre
-def computeError(ACL, OGACL):
-
-    print("-----CL-----")
-
-    newCL = ACL[0]
-    ogCL = OGACL[0]
-
-    #Calculation of the absolute error and truncation of the result
-    CL_abs_error = truncate(np.abs(ogCL - newCL))
-    #Calculation of the relative error and truncation of the result
-    CL_rel_error = truncate((CL_abs_error / ogCL) * 100)
-
-    print(str(CL_abs_error))
-    print(str(CL_rel_error), "%")
-
-    print("-----AC-----")
-
-    newAC = ACL[1]
-    ogAC = OGACL[1]
-
-    #Same calculation as the one made for the lift coefficient
-    AC_abs_error = truncate(np.abs(ogAC - newAC))
-    AC_rel_error = truncate((AC_abs_error / ogAC) * 100)
-
-    print(str(AC_abs_error))
-    print(str(AC_rel_error), "%")
-
-    #We return an array with the error values
-    return np.array([[CL_abs_error, CL_rel_error], [AC_abs_error, AC_rel_error]])
-
+#Function to separate the upper surface values and the lower surface values
 def separate_Cp(xpos, ypos, zpos, Cp):
     i = 0
+    
+    #Creation of the variables where the data will be stored
     x_fom_up = []
     y_fom_up = []
     z_fom_up = []
@@ -61,6 +33,8 @@ def separate_Cp(xpos, ypos, zpos, Cp):
     y_fom_down = []
     z_fom_down = []
     cp_fom_down = []
+    
+    #Loop through every possible value
     while i< len(zpos):
         if (zpos[i]>0):
             x_fom_up.append(xpos[i])
@@ -83,6 +57,7 @@ def separate_Cp(xpos, ypos, zpos, Cp):
     cp_fom_down = np.array(cp_fom_down).squeeze() 
     
     return x_fom_up, y_fom_up, z_fom_up, cp_fom_up, x_fom_down, y_fom_down, z_fom_down, cp_fom_down
+
 #Function to load the simulation data
 def load_data(data_path):
     
@@ -117,7 +92,7 @@ def load_data(data_path):
                 x, y, z, cp = map(float, line.split())
                 #Cp values will be saved as follows. Each column will have the Cp values corresponding to a file.
                 Cp[j, i] = cp 
-                #X and Y are the same for all the simulations, so we only save them in the first iteration
+                #X, Y and Z are the same for all the simulations, so we only save them in the first iteration
                 if i == 0:
                     xpos[j] = x
                     ypos[j] = y
@@ -125,7 +100,7 @@ def load_data(data_path):
 
     return Alpha, Mach, Cp, xpos, ypos, zpos
 
-
+#Function to plot the pressure distribution around the airfoil in 3D
 def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach):
     fig = plt.figure(figsize=(10, 6))
     ax = fig.add_subplot(111, projection='3d')
@@ -142,6 +117,7 @@ def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach):
     ax.set_zlim([-0.25, 0.25])
     plt.tight_layout()
     
+#Function to plot the pressure distribution around the airfoil in 2D (plane xy)
 def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
 
     plt.rcParams['xtick.direction'] = 'in'
@@ -156,22 +132,16 @@ def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
     xpos = xpos[mask]
     ypos = ypos[mask]
     Cp = Cp[mask]
-    # 1) Triangulamos TODOS los puntos (sin filtrar antes)
+    # Triangulation of all the points
     triang = mtri.Triangulation(xpos, ypos)
 
-    # 2) Enmascaramos triángulos por debajo de y=0 (opcional)
-    # bar_y = np.mean(ypos[triang.triangles], axis=1)
-    # triang.set_mask(bar_y <= 0)
-
-    # 3) Pintamos con shading='gouraud' (interpolación continua)
+    # We paint with shading='gouraud' (continuous interpolation)
     fig, ax = plt.subplots(figsize=(8,8))
     tpc = ax.tripcolor(triang,Cp.squeeze(),norm = norm ,cmap='viridis', edgecolors='none', linewidth = 0.8)
 
-    # opcional: contornos suaves
     levels = np.linspace(Cp.min(), Cp.max(), 60)
     ax.tricontourf(triang, Cp.squeeze(), levels=levels, cmap='viridis', alpha=0.0)
 
-    # colorbar y estética
     cbar = fig.colorbar(tpc, ax=ax, label='PRESSURE COEFFICIENT')
     math_label_fontsize = 14
     cbar.ax.tick_params(labelsize=math_label_fontsize)
@@ -182,11 +152,13 @@ def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
     plt.title(f'Cp distribution (Alpha={Alpha}, Mach={Mach})')
     plt.tight_layout()
 
+#Function to plot the Cp distribution in a section of the airfoil (plot in 2D)
 def plot_cp_section(xpos, ypos, zpos, Cp, Cp_real, parameters):
     labels = [90, 65, 20]
 
+    #Separation of the values
     x_fom_up, y_fom_up, z_fom_up, cp_fom_up, x_fom_down, y_fom_down, z_fom_down, cp_fom_down = separate_Cp(xpos, ypos, zpos, Cp)
-    x_fom_up_real, y_fom_up_real, z_fom_up_real, cp_fom_up_real, x_fom_down_real, y_fom_down_real, z_fom_down_real, cp_fom_down_real = separate_Cp(xpos, ypos, zpos, Cp_real)
+
     for section in range(3):
         fig = plt.figure(figsize=(4, 3))
         
@@ -205,14 +177,6 @@ def plot_cp_section(xpos, ypos, zpos, Cp, Cp_real, parameters):
         cp_interpolated_fom_inf = griddata((x_fom_down, y_fom_down), cp_fom_down, (x_grid,y_target), method='linear', fill_value=0.25)
         cp_interpolated_fom_full = np.concatenate((cp_interpolated_fom, cp_interpolated_fom_inf[::-1]))
         plt.plot(x_airfoil_normalized_full, -cp_interpolated_fom_full, '-', color='blue', marker = "o", linewidth=1.5, label='Interpolated Cp')
-
-        # cp_interpolated_fom_real = griddata((x_fom_up_real, y_fom_up_real), cp_fom_up_real, (x_grid,y_target), method='linear', fill_value=0.25)
-        # cp_interpolated_fom_inf_real = griddata((x_fom_down_real, y_fom_down_real), cp_fom_down_real, (x_grid,y_target), method='linear', fill_value=0.25)
-        # cp_interpolated_fom_full_real = np.concatenate((cp_interpolated_fom_real, cp_interpolated_fom_inf_real[::-1]))
-        # plt.plot(x_airfoil_normalized_full, -cp_interpolated_fom_full_real, '-', color='green', linewidth=1.5, label='Real Cp')
-        
-        # plt.xlim(-0.1, 1.1)
-        # plt.ylim(-1.0, 1.3)
 
         # Set labels
         math_label_fontsize = 14
@@ -233,63 +197,7 @@ def predict(ACL, rom):
 
     return newCP
 
-def calcular_cl_desde_puntos(coords, Cp, alfa_deg, mach, rho=1.225, T=288.15,gamma=1.4, R=287.05):
-
-
-    # 1) PCA para definir el plano principal del ala
-    mean = coords.mean(axis=0)
-    centered = coords - mean
-    cov = np.cov(centered.T)
-    vals, vecs = np.linalg.eigh(cov)
-    # orden descendente de varianza
-    idx = np.argsort(vals)[::-1]
-    e1, e2 = vecs[:, idx[0]], vecs[:, idx[1]]
-
-    # 2) Proyección 2D
-    pts2d = np.stack([centered.dot(e1), centered.dot(e2)], axis=1)
-
-    # 3a) Triangulación para integración
-    tri = Delaunay(pts2d)
-    tris = tri.simplices
-
-    # 3b) Área de referencia = área del hull en 2D
-    hull = ConvexHull(pts2d)
-    S = hull.volume  # en 2D, volume = área
-
-    # 4) Condiciones de flujo
-    a = np.sqrt(gamma * R * T)
-    V = mach * a
-    q_inf = 0.5 * rho * V**2
-    alfa = np.radians(alfa_deg)
-    lift_dir = np.array([-np.sin(alfa), 0.0, np.cos(alfa)])  # eje z' del ala
-
-    # 5) Integración sobre cada triángulo
-    L_total = 0.0
-    for tri_pts in tris:
-        i0, i1, i2 = tri_pts
-        p0, p1, p2 = coords[i0], coords[i1], coords[i2]
-        cn = np.cross(p1 - p0, p2 - p0)           # 2·área·normal
-        area = 0.5 * np.linalg.norm(cn)           # área del triángulo
-        n_hat = cn / (2 * area)       # normal unitaria
-        
-        if np.dot(n_hat, lift_dir) < 0:
-            n_hat = -n_hat
-            
-        cp_avg = (Cp[i0] + Cp[i1] + Cp[i2]) / 3.0
-        dF = - cp_avg * q_inf * area * n_hat      # fuerza elemental
-        L_total += np.dot(dF, lift_dir)
-
-    # 6) Coeficiente de sustentación
-    Cl = L_total / (q_inf * S)
-    print(f"Ángulo de ataque: {alfa_deg}°  |  Mach: {mach}")
-    print(f"Área ala proyectada (S): {S:.3f} m²")
-    print(f"q_inf: {q_inf:.2f} Pa  |  V: {V:.2f} m/s")
-    print(f"Lift total: {L_total:.2f} N")
-    print(f"CL calculado: {Cl:.4f}")
-    print(f"Cp: min={Cp.min():.3f}, max={Cp.max():.3f}, mean={Cp.mean():.3f}")
-
-    return Cl
-
+#Function to calculate the error in the Cl calculated
 def computeError(Cl_real, Cl_interp):
 
 
@@ -301,7 +209,7 @@ def computeError(Cl_real, Cl_interp):
     print("Error absoluto: " + str(CL_abs_error))
     print("Error relativo: " + str(CL_rel_error), "%")
 
-
+#Function to find the index where a combination of alpha and Mach can be found
 def find_index(arr, alfa, mach, Cp):
     idx = np.where((arr[:, 0] == alfa) & (arr[:, 1] == mach))[0]
     cp_case = Cp[:, idx] 
@@ -328,6 +236,7 @@ def compute_Cp_error(Cp_real, Cp_interp):
     print(f"Error absoluto promedio: {error_abs_prom}")
     return abs_error, rel_error
 
+#Function that integrates the Cp along the airfoil surface
 def integrate_surface(x, y, z, cp, is_upper):
 
     pts2d = np.vstack((x, y)).T
@@ -335,22 +244,20 @@ def integrate_surface(x, y, z, cp, is_upper):
 
     lift = 0.0
     for tri_idx in tri.simplices:
-        # puntos en 3D
+        # 3D points
         p1 = np.array([x[tri_idx[0]], y[tri_idx[0]], z[tri_idx[0]]])
         p2 = np.array([x[tri_idx[1]], y[tri_idx[1]], z[tri_idx[1]]])
         p3 = np.array([x[tri_idx[2]], y[tri_idx[2]], z[tri_idx[2]]])
 
-        # vector-área (módulo del área en z)
+        # Area-vector (area's module in z)
         dA_vec = np.cross(p2 - p1, p3 - p1) / 2.0
         area = abs(dA_vec[2])
 
         cp_avg = cp[tri_idx].mean()
 
-        # signo según superficie:
-        # - en la cara superior, dA_z > 0 orienta normal hacia +z,
-        #   y la fuerza es -Cp * area
-        # - en la cara inferior, normal apunta hacia -z,
-        #   y la fuerza de sustentación (hacia +z) es +Cp * area
+        # the sign depends on the surface:
+        # in the upper surface, dA_z > 0, its normal is pointed towards +z and the force is -Cp * area
+        # in the upper surface, dA_z < 0, its normal is pointed towards -z and the force is +Cp * area 
         if is_upper:
             lift += -cp_avg * area
         else:
@@ -358,33 +265,39 @@ def integrate_surface(x, y, z, cp, is_upper):
 
     return lift
 
+#Function to compute the lift coefficient
 def compute_cl(x, y, z, cp, S_ref):
 
-    # Separa tuplas (x_up, y_up, z_up, cp_up), (x_low, y_low, z_low, cp_low)
+    # Separation of the upper surface values from the lower surface values
     x_up,  y_up,  z_up,  cp_up, \
     x_low, y_low, z_low, cp_low = separate_Cp(x, y, z, cp)
 
-    # Integral en cada superficie
+    # Integration in each surface
     L_up   = integrate_surface(x_up,  y_up,  z_up,  cp_up, True)
     L_low  = integrate_surface(x_low, y_low, z_low, cp_low, False)
 
-    # Lift neto y CL
+    # Lift and lift coefficient
     L_net  = L_up + L_low
     CL     = L_net / S_ref
     CL = truncate(CL)
     print("Cl = " + str(CL))
     return CL
 
+
+########################## SCRIPT ###########################################
 def main():
     
+    #Load the data and definition of the parameters
     data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\BBDD 3D\\FOM_Skin_Data"
     rank = 50
     epsilon = 10
-    kernel = 'gaussian'
+    kernel = 'linear'
     AlphaRange = [0, 3.5]
     MachRange = [0.6, 0.85]
     S=0.7532
 
+    #Validation and test combinations
+    V1 = np.array([[3.06, 0.839]])
     T1 = np.array([[0.15232, 0.60535]])
     Cl_1 = 0.01168
     T2 = np.array([[1.0615, 0.62832]])
@@ -468,34 +381,42 @@ def main():
     #It adjust the data
     rom.fit()
     
-    #Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.
-    print("------ TEST 1 ------")
-    start_time1 = time.perf_counter()
-    reconstructed_cp = predict(T1, rom)
-    end_time1 = time.perf_counter()
-    elapsed_time1 = end_time1 - start_time1
-    print("Tiempo de ejecucion: " + str(elapsed_time1))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_1, T1)
-    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0,0], T1[0,1])
+    print("------ VALIDATION ------")
+    reconstructed_cp = predict(V1, rom)
+
+    plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_1, T1)
+    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, V1[0,0], V1[0,1])
     plot_cp_2d(xpos, ypos, reconstructed_cp, T1[0,0], T1[0,1])
     compute_Cp_error(Cp_1, reconstructed_cp)
     Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
     computeError(Cl_1, Cl)
     
-    # plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0, 0], T1[0, 1]) 
+    #Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.
+    print("------ TEST 1 ------")
+    start_time1 = time.perf_counter()
+    #Prediction of the pressure distribution
+    reconstructed_cp = predict(T1, rom)
+    end_time1 = time.perf_counter()
+    elapsed_time1 = end_time1 - start_time1
+    print("Tiempo de ejecucion: " + str(elapsed_time1))
+
+    plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_1, T1)
+    plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T1[0,0], T1[0,1])
+    plot_cp_2d(xpos, ypos, reconstructed_cp, T1[0,0], T1[0,1])
+    compute_Cp_error(Cp_1, reconstructed_cp)
+    Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
+    computeError(Cl_1, Cl)
+
     
     print("------ TEST 2 ------")
     start_time2 = time.perf_counter()
+    #Prediction of the pressure distribution
     reconstructed_cp = predict(T2, rom)
     end_time2 = time.perf_counter()
     elapsed_time2 = end_time2 - start_time2
     print("Tiempo de ejecucion: " + str(elapsed_time2))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
 
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_2, T2)
+    plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_2, T2)
     plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T2[0,0], T2[0,1])
     plot_cp_2d(xpos, ypos, reconstructed_cp, T2[0,0], T2[0,1])
     compute_Cp_error(Cp_2, reconstructed_cp)
@@ -505,32 +426,29 @@ def main():
     
     print("------ TEST 3 ------")
     start_time3 = time.perf_counter()
+    #Prediction of the pressure distribution
     reconstructed_cp = predict(T3, rom)
     end_time3 = time.perf_counter()
     elapsed_time3 = end_time3 - start_time3
     print("Tiempo de ejecucion: " + str(elapsed_time3))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
 
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_3, T3)
+    plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_3, T3)
     plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T3[0,0], T3[0,1])
     plot_cp_2d(xpos, ypos, reconstructed_cp, T3[0,0], T3[0,1])
     compute_Cp_error(Cp_3, reconstructed_cp)
     Cl = compute_cl(xpos, ypos, zpos, reconstructed_cp, S)
     computeError(Cl_3, Cl)
-    
-    
+
     
     print("------ TEST 4 ------")
     start_time4 = time.perf_counter()
+    #Prediction of the pressure distribution
     reconstructed_cp = predict(T4, rom)
     end_time4 = time.perf_counter()
     elapsed_time4 = end_time4 - start_time4
     print("Tiempo de ejecucion: " + str(elapsed_time4))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
 
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_4, T4)
+    plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_4, T4)
     plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T4[0,0], T4[0,1])
     plot_cp_2d(xpos, ypos, reconstructed_cp, T4[0,0], T4[0,1])
     compute_Cp_error(Cp_4, reconstructed_cp)
@@ -540,14 +458,13 @@ def main():
     
     print("------ TEST 5 ------")
     start_time5 = time.perf_counter()
+    #Prediction of the pressure distribution
     reconstructed_cp = predict(T5, rom)
     end_time5 = time.perf_counter()
     elapsed_time5 = end_time5 - start_time5
     print("Tiempo de ejecucion: " + str(elapsed_time5))
-    #We return the interpolated values to the original column space
-    coords = np.column_stack((xpos, ypos, zpos))
     
-    #plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_5, T5)
+    plot_cp_section(xpos, ypos, zpos, reconstructed_cp, Cp_5, T5)
     plot_cp_3d(xpos, ypos, zpos, reconstructed_cp, T5[0,0], T5[0,1])
     plot_cp_2d(xpos, ypos, reconstructed_cp, T5[0,0], T5[0,1])
     compute_Cp_error(Cp_5, reconstructed_cp)

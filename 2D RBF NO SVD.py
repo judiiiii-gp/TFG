@@ -299,11 +299,13 @@ def main():
     data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\Exemple TFG\\CODE\\Naca0012_database_mesh_1\\FOM_Skin_Data"
 
     epsilon = 95
-    kernel = 'gaussian'
+    kernel = 'linear'
     AlphaRange = [0, 2]
     MachRange = [0.6, 0.75]
     
     #Values that will be used for the testing
+    V1 = np.array([[1, 0.72]])
+    V1OG = [0.19323, 0.24097]
     T1 = np.array([[0.21619, 0.61428]])
     T1OG = [0.03294, 0.25495]
     T2 = np.array([[1.42518, 0.63396]])
@@ -323,7 +325,7 @@ def main():
     Mach = truncate(Mach)
 
     #Creation of an array with all the test samples
-    TestSamples = np.stack((T1.flatten(), T2.flatten(), T3.flatten(), T4.flatten(), T5.flatten()))
+    TestSamples = np.stack((V1.flatten(), T1.flatten(), T2.flatten(), T3.flatten(), T4.flatten(), T5.flatten()))
 
     #A range of alpha and Mach has been established. Here we are going to loop through every value of alpha and mach to eliminate the values that are outside the range defined
     i = 0
@@ -370,6 +372,17 @@ def main():
 
     #Computation of the weights of the system
     weights = compute_rbf_weights(parameters, Cp.T, epsilon, kernel)
+    
+    #Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.
+    print("------ VALIDATION ------")
+    interpolated_coefficients = rbf_interpolate(parameters, weights, V1, epsilon, kernel)
+    reconstructed_cp = interpolated_coefficients
+    t = "New: A = " + str(V1[0,0]) + " M = " + str(V1[0,1])
+    Cl = compute_CL(reconstructed_cp.T, xpos, ypos, True, t)
+    AC = compute_AC(reconstructed_cp.T, xpos, ypos, False, t)
+    Cl = truncate(Cl)
+    AC = truncate(AC)
+    print(" CL  = ", Cl, " AC  = ", AC)
     
 
     #Testing phase, where we perform the interpolation and the calculation fo the errors for each sample.

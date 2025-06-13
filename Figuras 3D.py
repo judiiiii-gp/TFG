@@ -16,11 +16,12 @@ def load_data(data_path):
     data_list = os.listdir(data_path)
     num_files = len(data_list)
     
-    #We list all the files in the directory
+    
     sample_file = os.path.join(data_path, data_list[0])
     with open(sample_file, 'r') as f:
         num_points = len(f.readlines())
 
+    #Creation of the variables where the data will be stored
     Alpha = np.zeros((num_files, 1))
     Mach = np.zeros((num_files, 1))
     Cp = np.zeros((num_points, num_files))
@@ -43,7 +44,7 @@ def load_data(data_path):
                 x, y, z, cp = map(float, line.split())
                 #Cp values will be saved as follows. Each column will have the Cp values corresponding to a file.
                 Cp[j, i] = cp 
-                #X and Y are the same for all the simulations, so we only save them in the first iteration
+                #X, Y and Z are the same for all the simulations, so we only save them in the first iteration
                 if i == 0:
                     xpos[j] = x
                     ypos[j] = y
@@ -51,6 +52,7 @@ def load_data(data_path):
 
     return Alpha, Mach, Cp, xpos, ypos, zpos
 
+#Function to plot the pressure distribution in 3D around the airfoil
 def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach):
 
     fig = plt.figure(figsize=(10, 7))
@@ -69,6 +71,7 @@ def plot_cp_3d(xpos, ypos, zpos, Cp, Alpha, Mach):
     ax.set_zlim([-0.25, 0.25])
     plt.tight_layout()
 
+#Function to plot the pressure distribution around the airfoil in 2D (plane xy)
 def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
 
     plt.rcParams['xtick.direction'] = 'in'
@@ -109,13 +112,13 @@ def plot_cp_2d(xpos, ypos, Cp, Alpha, Mach):
     plt.title(f'Cp distribution (Alpha={Alpha[idx, 0]}, Mach={Mach[idx, 0]})')
     plt.tight_layout()
 
-
+#Function to load the file to validate the results
 def load_validation_file(directory_path, section):
     
     filename = f'cp_{section}.dat'
     filepath = os.path.join(directory_path, filename)
     
-    # Leemos el archivo
+    # We reed the file
     try:
         data = np.loadtxt(filepath)
         X = data[:, 0]
@@ -128,6 +131,7 @@ def load_validation_file(directory_path, section):
         print(f"⚠️ Error al leer '{filename}': {e}")
         return None, None
 
+#Function to plot the pressure distribution from different sections of the airfoil. The plot is in 2D.
 def plot_cp_2d_xz(xpos, ypos, zpos, Cp, Alpha, Mach):
     labels = [95, 90, 80, 65, 44, 20]
     
@@ -205,6 +209,7 @@ def plot_cp_2d_xz(xpos, ypos, zpos, Cp, Alpha, Mach):
         plt.legend(loc='upper right')
         plt.tight_layout()
 
+#Function to plot the comparison between the simulated Cp and the interpolated Cp
 def plot_cp(Cp_real, Cp_interpolado, text):
     plt.figure()
     plt.scatter(Cp_real, Cp_interpolado, color='blue', label='Cp interpolado vs Cp real')
@@ -216,8 +221,11 @@ def plot_cp(Cp_real, Cp_interpolado, text):
     plt.legend()
     plt.grid(True)
 
+#Function to separate the Cp values from the ones on the upper surface of the wing and the ones on the lower surface
 def separate_Cp(xpos, ypos, zpos, Cp):
     i = 0
+    
+    #Creation of the variables
     x_fom_up = []
     y_fom_up = []
     z_fom_up = []
@@ -226,6 +234,8 @@ def separate_Cp(xpos, ypos, zpos, Cp):
     y_fom_down = []
     z_fom_down = []
     cp_fom_down = []
+    
+    #Loop through all the values to assign them on the corresponding surface
     while i< len(zpos):
         if (zpos[i]>0):
             x_fom_up.append(xpos[i])
@@ -249,6 +259,7 @@ def separate_Cp(xpos, ypos, zpos, Cp):
     
     return x_fom_up, y_fom_up, z_fom_up, cp_fom_up, x_fom_down, y_fom_down, z_fom_down, cp_fom_down
 
+#Function that integrates the Cp along the airfoil surface
 def integrate_surface(x, y, z, cp, is_upper):
 
     pts2d = np.vstack((x, y)).T
@@ -256,22 +267,20 @@ def integrate_surface(x, y, z, cp, is_upper):
 
     lift = 0.0
     for tri_idx in tri.simplices:
-        # puntos en 3D
+        # points in 3D
         p1 = np.array([x[tri_idx[0]], y[tri_idx[0]], z[tri_idx[0]]])
         p2 = np.array([x[tri_idx[1]], y[tri_idx[1]], z[tri_idx[1]]])
         p3 = np.array([x[tri_idx[2]], y[tri_idx[2]], z[tri_idx[2]]])
 
-        # vector-área (módulo del área en z)
+        # Area-vector (area's module in z)
         dA_vec = np.cross(p2 - p1, p3 - p1) / 2.0
         area = abs(dA_vec[2])
 
         cp_avg = cp[tri_idx].mean()
 
-        # signo según superficie:
-        # - en la cara superior, dA_z > 0 orienta normal hacia +z,
-        #   y la fuerza es -Cp * area
-        # - en la cara inferior, normal apunta hacia -z,
-        #   y la fuerza de sustentación (hacia +z) es +Cp * area
+        # the sign depends on the surface:
+        # in the upper surface, dA_z > 0, its normal is pointed towards +z and the force is -Cp * area
+        # in the upper surface, dA_z < 0, its normal is pointed towards -z and the force is +Cp * area 
         if is_upper:
             lift += -cp_avg * area
         else:
@@ -279,44 +288,42 @@ def integrate_surface(x, y, z, cp, is_upper):
 
     return lift
 
+#Function to compute the lift coefficient
 def compute_cl(x, y, z, cp, S_ref):
 
-    # Separa tuplas (x_up, y_up, z_up, cp_up), (x_low, y_low, z_low, cp_low)
+    # Separation of the upper surface values from the lower surface values
     x_up,  y_up,  z_up,  cp_up, \
     x_low, y_low, z_low, cp_low = separate_Cp(x, y, z, cp)
 
-    # Integral en cada superficie
+    # Integration in each surface
     L_up   = integrate_surface(x_up,  y_up,  z_up,  cp_up, True)
     L_low  = integrate_surface(x_low, y_low, z_low, cp_low, False)
 
-    # Lift neto y CL
+    # Lift and lift coefficient
     L_net  = L_up + L_low
     CL     = L_net / S_ref
     return CL
 
+############## SCRIPT ##############################
+
+#Load the data from the files
 data_path = "C:\\Users\\judig\\OneDrive\\Escritorio\\TFG\\BBDD 3D\\FOM_Skin_Data"
 Alpha, Mach, Cp, xpos, ypos, zpos = load_data(data_path)
 parameters = np.column_stack((Alpha, Mach))
 
+#Input values that are going to be studied
 alfa = 3.06
 mach = 0.839
 parameters = np.round(parameters, 5)
 idx = np.where((parameters[:, 0] == alfa) & (parameters[:, 1] == mach))[0]
 cp_case = Cp[:, idx] 
 
-
+#Distribution plots for the chosen case
 plot_cp_3d(xpos, ypos, zpos, cp_case, Alpha, Mach)
-#plot_cp_2d(xpos, ypos, cp_case, Alpha, Mach)
-#plot_cp_2d_xz(xpos, ypos, zpos, cp_case, Alpha, Mach)
+plot_cp_2d(xpos, ypos, cp_case, Alpha, Mach)
+plot_cp_2d_xz(xpos, ypos, zpos, cp_case, Alpha, Mach)
 
-# Tus puntos como array de N x 3
-puntos = np.column_stack((xpos, ypos, zpos))
-
-# Proyección en XY para crear la malla
-tri = Delaunay(np.column_stack((xpos, ypos)))
-
-# tri.simplices contiene los índices de los triángulos
-triangulos = tri.simplices
+#Definition of the surface
 S=0.7532
 
 cp_case = cp_case.flatten()
